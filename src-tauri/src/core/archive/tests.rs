@@ -55,6 +55,25 @@ fn reads_typescript_encrypted_fixture() {
 }
 
 #[test]
+fn locator_straddling_a_recovery_chunk_boundary_is_found() {
+    let mut bytes = super::create_archive_bytes("Boundary", "", 1).unwrap();
+    let locator = bytes
+        .windows(8)
+        .rposition(|window| window == b"TUXLOC1\0")
+        .expect("created archive has a publication locator");
+    let original_length = bytes.len();
+    // Place the last locator five bytes before a 64 KiB scan boundary. The scan
+    // reads an overlap but previously discarded candidates before chunk_start.
+    bytes.extend(std::iter::repeat_n(0u8, 65_536 + 5 - 32));
+    let snapshot = ArchiveSnapshot::open_bytes(bytes).expect("archive with a crash tail opens");
+    assert_eq!(snapshot.published_end_offset, original_length as u64);
+    assert_eq!(snapshot.commit.generation, 1);
+    assert!(snapshot.published_end_offset < snapshot.source.size());
+    assert!(snapshot.published_end_offset > 0);
+    assert_eq!(locator + 32, original_length);
+}
+
+#[test]
 fn every_truncation_of_a_valid_archive_is_rejected_without_panicking() {
     let bytes = super::create_archive_bytes("Truncation", "", 1).unwrap();
     for length in 0..bytes.len() {
