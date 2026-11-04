@@ -70,6 +70,9 @@ test("plays the matching archive audio from a transcript timestamp", async ({ pa
     await expect(page.locator(".transcript-audio-copy strong")).toHaveText("Microphone");
     await page.getByRole("button", { name: "Listen from cue" }).click();
 
+    await expect(page.locator(".transcript-cue.is-playing")).toHaveCount(1);
+    await expect(page.locator('.transcript-cue[aria-current="true"]')).toHaveCount(1);
+
     const player = page.locator(".transcript-audio-panel audio");
     await expect(player).toHaveAttribute("src", /^blob:/u);
     await expect
@@ -78,6 +81,36 @@ test("plays the matching archive audio from a transcript timestamp", async ({ pa
     const duration = await player.evaluate((element: HTMLAudioElement) => element.duration);
     expect(duration).toBeGreaterThan(0.7);
     expect(duration).toBeLessThan(0.8);
+});
+
+test("selects among multiple recordings and keeps transcript playback aligned", async ({
+    page,
+}, testInfo) => {
+    const archivePath = testInfo.outputPath("multi-track-session.tux");
+    await mkdir(dirname(archivePath), { recursive: true });
+    await writeFile(archivePath, await makeAudioArchive(true, true));
+
+    await page.goto("/");
+    const chooser = page.waitForEvent("filechooser");
+    await page
+        .locator("#main-content")
+        .getByRole("button", { name: "Open archive", exact: true })
+        .click();
+    await (await chooser).setFiles(archivePath);
+    await expect(page.getByRole("button", { name: /Audio test archive/u })).toBeVisible();
+
+    await page.getByRole("button", { name: "Record", exact: true }).click();
+    await expect(page.locator(".transcript-audio-copy strong")).toHaveText("Microphone");
+    const trackPicker = page.getByLabel("Audio track", { exact: true });
+    await expect(trackPicker.locator("option")).toHaveCount(2);
+    await trackPicker.selectOption({ label: "System audio" });
+    await expect(page.locator(".transcript-audio-copy strong")).toHaveText("System audio");
+
+    await page.getByRole("button", { name: "Listen from cue" }).click();
+    await expect(page.locator(".transcript-cue.is-playing")).toHaveCount(1);
+    await expect(page.locator('.transcript-cue[aria-current="true"]')).toHaveCount(1);
+    const player = page.locator(".transcript-audio-panel audio");
+    await expect(player).toHaveAttribute("src", /^blob:/u);
 });
 
 test("imports a WAV file into a session and plays it from a cue", async ({ page }, testInfo) => {
@@ -157,10 +190,12 @@ test("manages recording take and track names and restores trashed audio", async 
     await expect(page.locator(".transcript-audio-copy strong")).toHaveText("Tutor mic");
 });
 
-async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
+async function makeAudioArchive(includeAudio = true, multipleTracks = false): Promise<Uint8Array> {
     const sessionId = crypto.randomUUID();
     const takeId = crypto.randomUUID();
     const trackId = crypto.randomUUID();
+    const secondTakeId = crypto.randomUUID();
+    const secondTrackId = crypto.randomUUID();
     const transcriptId = crypto.randomUUID();
     const pcm = new Uint8Array(8_000 * 2);
     const pcmView = new DataView(pcm.buffer);
@@ -179,10 +214,11 @@ async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
         recording_state: "completed",
     };
     if (includeAudio) {
+        const trackIds = multipleTracks ? `${trackId},${secondTrackId}` : trackId;
         Object.assign(sessionFields, {
             recording_track_id: trackId,
-            recording_track_ids: trackId,
-            recording_track_count: "1",
+            recording_track_ids: trackIds,
+            recording_track_count: multipleTracks ? "2" : "1",
             recording_sample_format: "pcm_s16le",
             recording_sample_rate_hz: "8000",
             recording_channel_count: "1",
@@ -205,9 +241,30 @@ async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
     const take = record(RecordType.assetMetadata, takeId, {
         record_role: "recording-take",
         session_id: sessionId,
-        track_ids: trackId,
+        track_ids: multipleTracks ? `${trackId},${secondTrackId}` : trackId,
         label: "Microphone take",
         source: "microphone",
+        state: "completed",
+    });
+    const secondTrack = record(RecordType.assetMetadata, secondTrackId, {
+        record_role: "audio-track",
+        session_id: sessionId,
+        track_id: secondTrackId,
+        recording_take_id: secondTakeId,
+        label: "System audio",
+        source: "system-audio",
+        state: "completed",
+        sample_format: "pcm_s16le",
+        sample_rate_hz: "8000",
+        channel_count: "1",
+        chunk_count: "1",
+    });
+    const secondTake = record(RecordType.assetMetadata, secondTakeId, {
+        record_role: "recording-take",
+        session_id: sessionId,
+        track_ids: secondTrackId,
+        label: "System take",
+        source: "system-audio",
         state: "completed",
     });
     const audio = record(
@@ -216,6 +273,26 @@ async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
         {
             session_id: sessionId,
             track_id: trackId,
+            sequence_number: "0",
+            first_sample_index: "0",
+            sample_count: "8000",
+            gap_before_samples: "0",
+            timeline_start_us: "0",
+            timeline_end_us: "1000000",
+            sample_format: "pcm_s16le",
+            sample_rate_hz: "8000",
+            channel_count: "1",
+            codec: "none",
+            payload_checksum: String(crc32(pcm)),
+        },
+        pcm,
+    );
+    const secondAudio = record(
+        RecordType.audioChunk,
+        crypto.randomUUID(),
+        {
+            session_id: sessionId,
+            track_id: secondTrackId,
             sequence_number: "0",
             first_sample_index: "0",
             sample_count: "8000",
@@ -240,9 +317,11 @@ async function makeAudioArchive(includeAudio = true): Promise<Uint8Array> {
         verification_state: "human-verified",
     });
     const initial = await openArchiveBytes(await createArchiveBytes("Audio test archive"));
-    const records = includeAudio
-        ? [session, track, take, audio, transcript]
-        : [session, transcript];
+    const records = !includeAudio
+        ? [session, transcript]
+        : multipleTracks
+          ? [session, track, take, audio, secondTrack, secondTake, secondAudio, transcript]
+          : [session, track, take, audio, transcript];
     const snapshot = await appendRecords(initial, records);
     const buffer = await new Response(sourceStream(snapshot.source)).arrayBuffer();
     return new Uint8Array(buffer);
