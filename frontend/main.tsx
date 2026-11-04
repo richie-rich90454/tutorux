@@ -360,6 +360,7 @@ const [loading, setLoading] = createSignal(false);
 const [query, setQuery] = createSignal("");
 const [paletteOpen, setPaletteOpen] = createSignal(false);
 const [commandConsoleOpen, setCommandConsoleOpen] = createSignal(false);
+const [guideEditorOpen, setGuideEditorOpen] = createSignal(false);
 const [paletteQuery, setPaletteQuery] = createSignal("");
 const [paletteIndex, setPaletteIndex] = createSignal(0);
 const [notice, setNotice] = createSignal<{ message: string; tone: Tone } | null>(null);
@@ -593,7 +594,8 @@ function App(): JSX.Element {
                     pendingDelete() ||
                     pendingSessionTrash() ||
                     pendingTrashPurge() ||
-                    commandConsoleOpen(),
+                    commandConsoleOpen() ||
+                    guideEditorOpen(),
                 ),
                 paletteOpen: paletteOpen(),
                 markerKeys: markerKeys(active),
@@ -928,12 +930,43 @@ function App(): JSX.Element {
         };
     }
 
+    function canReplaceWorkspace(allowOpenDialog = false): boolean {
+        const current = workspace();
+        if (current?.dirty) {
+            announce(
+                "Save or download your current workspace before opening another archive.",
+                "info",
+            );
+            return false;
+        }
+        if (guideEditorOpen()) {
+            announce("Close the study guide editor before opening another archive.", "info");
+            return false;
+        }
+        if (
+            !allowOpenDialog &&
+            (dialog() ||
+                dialogRecord() ||
+                pendingDelete() ||
+                pendingSessionTrash() ||
+                pendingTrashPurge())
+        ) {
+            announce("Finish or cancel the open dialog before switching archives.", "info");
+            return false;
+        }
+        return true;
+    }
+
     async function acceptArchive(
         source: ArchiveByteSource,
         name: string,
         location: string | null,
         browserAutosave?: BrowserArchiveAutosave,
     ): Promise<void> {
+        if (!canReplaceWorkspace()) {
+            await source.close?.().catch(() => undefined);
+            return;
+        }
         setLoading(true);
         let accepted = false;
         try {
@@ -953,6 +986,9 @@ function App(): JSX.Element {
             if (previous && previous.snapshot !== snapshot) previous.snapshot.lock();
             setPendingSessionTrash(null);
             setPendingTrashPurge(null);
+            setDialog(null);
+            setDialogRecord(null);
+            setPendingDelete(null);
             accepted = true;
             setView("journal");
             setQuery("");
@@ -972,6 +1008,7 @@ function App(): JSX.Element {
         if (platform.kind !== "desktop" || !platform.openLaunchArchive) return Promise.resolve();
         const drain = async (): Promise<void> => {
             while (true) {
+                if (!canReplaceWorkspace()) return;
                 const selected = await platform.openLaunchArchive?.();
                 if (!selected) return;
                 await acceptArchive(selected.source, selected.name, selected.location);
@@ -1025,6 +1062,8 @@ function App(): JSX.Element {
             archivedSessions: [],
             trashedSessions: [],
             audioTracks: [],
+            trashedRecordingTracks: [],
+            trashedRecordingTakes: [],
             entries: [],
             trashedJournalEntries: [],
             journals: [],
@@ -1041,6 +1080,8 @@ function App(): JSX.Element {
             evidence: [],
             evidenceEdges: [],
             trashedEvidenceEdges: [],
+            aiJobs: [],
+            settings: [],
             providerSettings: [],
             credentials: [],
         });
@@ -1058,6 +1099,7 @@ function App(): JSX.Element {
     }
 
     async function openArchive(): Promise<void> {
+        if (!canReplaceWorkspace()) return;
         try {
             const selected = await platform.openArchive();
             if (!selected) return;
@@ -1148,6 +1190,7 @@ function App(): JSX.Element {
         passphrase = "",
     ): Promise<void> {
         if (busy()) return;
+        if (!canReplaceWorkspace(true)) return;
         if (!name.trim()) throw new Error("Give this archive a name before creating it.");
         const suggestedName = `${safeFileName(name)}.tux`;
         let openedSnapshot: ArchiveSnapshot | undefined;
@@ -1221,14 +1264,32 @@ function App(): JSX.Element {
             );
             if (!path) return;
             if (platform.kind === "browser") browserAutosaveBinding = undefined;
-            setWorkspace({
-                ...state,
-                location: platform.kind === "desktop" ? path : null,
-                dirty: false,
-            });
+            const latest = workspace();
+            if (!latest || latest.snapshot.header.id !== state.snapshot.header.id) return;
+            const savedCurrent = latest.snapshot === state.snapshot;
+            if (savedCurrent) {
+                setWorkspace({
+                    ...latest,
+                    location: platform.kind === "desktop" ? path : null,
+                    dirty: false,
+                });
+            } else {
+                // A checkpoint or transcript commit advanced the workspace while the
+                // archive was being written. Keep that newer snapshot and its dirty state;
+                // the file just written contains the older generation.
+                setWorkspace({
+                    ...latest,
+                    location: platform.kind === "desktop" ? path : latest.location,
+                    dirty: true,
+                });
+            }
             setArchiveSaveConflict(false);
             announce(
-                asNewCopy ? "A separate copy of your archive is saved." : "Your archive is saved.",
+                savedCurrent
+                    ? asNewCopy
+                        ? "A separate copy of your archive is saved."
+                        : "Your archive is saved."
+                    : "Saved the archive generation from when the save started. Newer changes are still unsaved.",
                 "success",
             );
         } catch (error) {
@@ -1310,6 +1371,7 @@ function App(): JSX.Element {
     async function addRecords(
         records: readonly ArchiveRecord[],
         successMessage = "Added to your archive. Save to write the new generation to disk.",
+        closeDialogs = true,
     ): Promise<boolean> {
         const current = workspace();
         if (!current) {
@@ -1339,11 +1401,13 @@ function App(): JSX.Element {
             if (nextSnapshot !== current.snapshot) current.snapshot.lock();
             setView(view());
             announce(successMessage, "success");
-            setDialog(null);
-            setDialogRecord(null);
-            setPendingDelete(null);
-            setPendingSessionTrash(null);
-            setPendingTrashPurge(null);
+            if (closeDialogs) {
+                setDialog(null);
+                setDialogRecord(null);
+                setPendingDelete(null);
+                setPendingSessionTrash(null);
+                setPendingTrashPurge(null);
+            }
             return true;
         } catch (error) {
             if (nextSnapshot && workspace()?.snapshot !== nextSnapshot) nextSnapshot.lock();
@@ -2144,7 +2208,7 @@ function App(): JSX.Element {
             announce(errorMessage(error), "error");
         } finally {
             packageSnapshot?.lock();
-            await packageSnapshot?.source.close?.();
+            await packageSnapshot?.source.close?.().catch(() => undefined);
             setBusy(false);
         }
     }
@@ -2182,7 +2246,7 @@ function App(): JSX.Element {
             announce(errorMessage(error), "error");
         } finally {
             packageSnapshot?.lock();
-            await (packageSnapshot?.source ?? opened?.source)?.close?.();
+            await (packageSnapshot?.source ?? opened?.source)?.close?.().catch(() => undefined);
             setBusy(false);
         }
     }
@@ -4488,13 +4552,13 @@ function App(): JSX.Element {
                                         }
                                         onSaveMix={(snapshot, records, message) =>
                                             workspace()?.snapshot === snapshot
-                                                ? addRecords(records, message)
+                                                ? addRecords(records, message, false)
                                                 : Promise.resolve(false)
                                         }
                                         onCheckpointPersisted={markArchiveSnapshotPersisted}
                                         onSaveWhisper={(records, message, snapshot) =>
                                             workspace()?.snapshot === snapshot
-                                                ? addRecords(records, message)
+                                                ? addRecords(records, message, false)
                                                 : Promise.resolve(false)
                                         }
                                         onExport={(sessionId, format) =>
@@ -4658,6 +4722,7 @@ function App(): JSX.Element {
                                         onExportTemplate={(template) =>
                                             void exportGuideTemplate(template)
                                         }
+                                        onEditingChange={setGuideEditorOpen}
                                     />
                                 </Show>
                                 <Show when={view() === "evidence"}>
@@ -4749,6 +4814,7 @@ function App(): JSX.Element {
                                         busy={busy()}
                                         onApplyMaintenance={applyArchiveMaintenance}
                                         onSave={() => void saveCurrentArchiveFromAction()}
+                                        onSaveCopy={() => void saveCurrentArchiveAs()}
                                         onOpen={() => void openArchive()}
                                         onLock={() => void lockCurrentArchive()}
                                     />
@@ -5644,6 +5710,7 @@ function ArchivePage(props: {
         replacement: ArchiveSnapshot,
     ) => Promise<boolean>;
     onSave: () => void;
+    onSaveCopy: () => void;
     onOpen: () => void;
     onLock: () => void;
 }): JSX.Element {
@@ -5703,7 +5770,7 @@ function ArchivePage(props: {
                         "button button-primary text-inherit font-sans focus-visible:outline-offset-[2px] focus-visible:outline focus-visible:outline-3 focus-visible:outline-accent/40",
                     )}
                     type="button"
-                    onClick={() => props.onSave()}
+                    onClick={() => (props.state.dirty ? props.onSave() : props.onSaveCopy())}
                 >
                     <Icon name="check" />
                     {props.state.dirty ? "Save changes" : "Save a copy"}
