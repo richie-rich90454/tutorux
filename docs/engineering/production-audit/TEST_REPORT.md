@@ -21,7 +21,7 @@ Environment: Windows 11, Node 24, pnpm 12, Rust stable 1.97, Tauri 2. All browse
 | `pnpm run desktop:build` | PASS | MSI, NSIS and portable EXE rebuilt on Windows |
 | `pnpm audit --audit-level high` | PASS | no known vulnerabilities |
 | `pnpm run benchmark:archive` | PASS | 10,000 records: 4,622,032 bytes, 679.23 ms append, 174.48 ms list |
-| `cargo audit` | NOT RUN | `cargo-audit` is not installed; installing global Rust tools is prohibited |
+| `cargo audit` | NOT AVAILABLE | `cargo-audit` is not installed; global Rust tool installation is prohibited. An OSV batch scan of all 623 locked crates is recorded in `DEPENDENCY_AUDIT.md`. |
 
 ## Failures observed and resolved during the audit
 
