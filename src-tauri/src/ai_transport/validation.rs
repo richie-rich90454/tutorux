@@ -248,6 +248,13 @@ pub(super) fn validate_replicate_model_inspection(
 
 fn is_allowed_provider_host(provider_id: &str, url: &Url) -> bool {
     let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let fixed_port = url.port().is_none();
+    if provider_id == "openai-compatible" {
+        return true;
+    }
+    if !fixed_port {
+        return false;
+    }
     match provider_id {
         "openai" => host == "api.openai.com",
         "anthropic" => host == "api.anthropic.com",
@@ -282,7 +289,6 @@ fn is_allowed_provider_host(provider_id: &str, url: &Url) -> bool {
         "cloudflare-workers-ai" => host == "api.cloudflare.com",
         "ai21" => host == "api.ai21.com",
         "opencode-zen" | "opencode-go" => host == "opencode.ai",
-        "openai-compatible" => true,
         _ => false,
     }
 }
@@ -491,6 +497,18 @@ mod tests {
 
     fn allowed(provider_id: &str, endpoint: &str) -> bool {
         is_allowed_provider_host(provider_id, &Url::parse(endpoint).expect("valid endpoint"))
+    }
+
+    #[test]
+    fn fixed_provider_hosts_reject_non_default_ports() {
+        assert!(!allowed(
+            "openai",
+            "https://api.openai.com:8443/v1/chat/completions"
+        ));
+        assert!(allowed(
+            "openai-compatible",
+            "https://example.test:8443/v1/chat/completions"
+        ));
     }
 
     #[test]
