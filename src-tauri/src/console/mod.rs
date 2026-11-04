@@ -2,6 +2,7 @@ mod output;
 mod parser;
 mod session;
 
+use crate::archive_lock_support::LockMode;
 use crate::desktop::{
     archive_identity, archive_identity_and_hasher, resolve_existing_file, same_path,
     ArchiveIdentity, DesktopState,
@@ -77,6 +78,9 @@ pub(crate) async fn run_command_console(
     let arguments = parse_command_line(&input)?;
     reject_foreground_recording(&arguments)?;
     let (archive_path, starting_identity) = selected_archive_path(&desktop, &archive_token)?;
+    let archive_lock = desktop
+        .archive_locks
+        .for_path(&archive_path, LockMode::Shared)?;
     let cancellation = Arc::new(AtomicBool::new(false));
     {
         let mut runs = console
@@ -103,6 +107,7 @@ pub(crate) async fn run_command_console(
             &passphrase,
             &new_passphrase,
             &cancellation,
+            archive_lock,
         )
     })
     .await;
