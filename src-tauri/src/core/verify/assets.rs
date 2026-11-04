@@ -3,6 +3,8 @@ use crate::core::archive::{sha256, ArchiveRecord, RecordType};
 use super::helpers::{hex_encode, is_digits, is_sha256_hex};
 use super::VerificationLookup;
 
+const MAX_ASSET_BYTES: usize = 256 * 1024 * 1024;
+
 pub(crate) struct AssetContent {
     pub(crate) bytes: Vec<u8>,
     pub(crate) issue: Option<String>,
@@ -54,6 +56,12 @@ pub(crate) fn collect_asset_content(
                 return AssetContent {
                     bytes: Vec::new(),
                     issue: Some("manifest references missing or inconsistent chunks.".to_owned()),
+                };
+            }
+            if parts.len().saturating_add(chunk.unwrap().blob.len()) > MAX_ASSET_BYTES {
+                return AssetContent {
+                    bytes: Vec::new(),
+                    issue: Some("manifest exceeds the maximum material size.".to_owned()),
                 };
             }
             parts.extend_from_slice(&chunk.unwrap().blob);
