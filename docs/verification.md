@@ -8,7 +8,7 @@ The 2026-11-04 production audit ledger is in `docs/engineering/production-audit/
 
 Measured coverage applies to every first-party TypeScript module under `frontend/` (`frontend/**/*.ts`, including `frontend/platform/tauri.ts`). Declaration files are the only exclusion. There are no coverage-ignore comments, file exclusions, skipped tests, or test-only production branches.
 
-React-style `.tsx` SolidJS components and `index.html` are presentation code exercised by the Playwright end-to-end suite (`tests/e2e`, 35 tests in 21 files) and the static Tailwind-class guard. `pnpm run test:e2e` also collects real V8 coverage from the browser run, maps it back through the production source maps, and enforces floors over every first-party module in the web bundle (currently 48% statements, 34% branches, 58% functions, 48% lines). The remaining uncovered code is dominated by desktop-only adapters, hardware capture, and network-failure paths that the browser cannot execute; those are covered by the Rust flow tests and the 100% unit suite. The E2E coverage floors are a ratchet: raise them when the suite earns more coverage, never lower them.
+React-style `.tsx` SolidJS components and `index.html` are presentation code exercised by the Playwright end-to-end suite (`tests/e2e`, 36 tests in 21 files) and the static Tailwind-class guard. `pnpm run test:e2e` also collects real V8 coverage from the browser run, maps it back through the production source maps, and enforces floors over every first-party module in the web bundle (currently 48% statements, 34% branches, 58% functions, 48% lines). The remaining uncovered code is dominated by desktop-only adapters, hardware capture, and network-failure paths that the browser cannot execute; those are covered by the Rust flow tests and the 100% unit suite. The E2E coverage floors are a ratchet: raise them when the suite earns more coverage, never lower them.
 
 ## Commands and results
 
@@ -22,7 +22,7 @@ React-style `.tsx` SolidJS components and `index.html` are presentation code exe
 | `pnpm exec playwright test` | 35 pass |
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets --all-features --locked -D warnings` | pass |
-| `cargo test --all-features --locked` | 234 lib + 8 helper pass |
+| `cargo test --all-features --locked` | 245 lib + 8 helper pass |
 | `node scripts/rust-parity/run.mjs` | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm audit --audit-level high` | no known vulnerabilities |
 | `pnpm run build` | pass |
