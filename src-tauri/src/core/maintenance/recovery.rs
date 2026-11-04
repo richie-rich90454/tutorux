@@ -236,7 +236,7 @@ fn scan_unpublished_commit(
             continue;
         };
         if commit.previous_offset != snapshot.commit.offset
-            || commit.generation != snapshot.commit.generation + 1
+            || Some(commit.generation) != snapshot.commit.generation.checked_add(1)
         {
             continue;
         }
