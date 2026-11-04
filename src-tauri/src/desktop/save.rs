@@ -36,12 +36,16 @@ impl SaveScope for tauri::fs::Scope {
 
 #[tauri::command]
 pub(crate) async fn prepare_archive_save(
+    window: tauri::WebviewWindow,
     target_path: String,
     archive_token: Option<String>,
     create_only: bool,
     kind: Option<SaveKind>,
     app: AppHandle,
 ) -> Result<SavePreparation, String> {
+    if window.label() != "main" {
+        return Err("Archive saves are only available from the main window.".to_owned());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DesktopState>();
         let scope = app.fs_scope();
@@ -76,6 +80,9 @@ pub(crate) fn prepare_archive_save_blocking(
         Some(path) => path,
         None => target_location.clone(),
     };
+    if kind == SaveKind::Export {
+        validate_export_target(&target)?;
+    }
     if create_only && target.exists() {
         return Err(
             "An archive already exists at this location. Choose a new filename to create a separate copy."
@@ -151,7 +158,14 @@ pub(crate) fn prepare_archive_save_blocking(
 }
 
 #[tauri::command]
-pub(crate) async fn publish_archive_save(token: String, app: AppHandle) -> Result<(), String> {
+pub(crate) async fn publish_archive_save(
+    window: tauri::WebviewWindow,
+    token: String,
+    app: AppHandle,
+) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Archive saves are only available from the main window.".to_owned());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DesktopState>();
         let scope = app.fs_scope();
@@ -231,14 +245,62 @@ pub(crate) fn publish_archive_save_blocking(
         let backup_directory = pending
             .target
             .with_file_name(format!(".tutorux-{token}.backup"));
-        if pending.target.exists() {
-            let _ = fs::remove_dir_all(backup_directory);
-        }
+        discard_backup_if_restored(&backup_directory);
     } else {
         pending_saves.remove(&token);
         scope.forbid_file(&pending.temporary);
     }
     result
+}
+
+/// Export saves use the same user-visible file types as `write_export_file`.
+/// Archives keep their own `.tux` rule above.
+fn validate_export_target(target: &Path) -> Result<(), String> {
+    const ALLOWED_EXPORT_EXTENSIONS: &[&str] = &[
+        "txt", "md", "markdown", "srt", "vtt", "json", "jsonl", "html", "htm", "docx", "pdf",
+        "wav", "csv", "xml", "tux",
+    ];
+    let extension = target
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if !ALLOWED_EXPORT_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(
+            "Exports are limited to document, transcript, data, archive, and audio file types."
+                .to_owned(),
+        );
+    }
+    let normalized = target.to_string_lossy().to_lowercase();
+    const BLOCKED_EXPORT_PATHS: &[&str] = &[
+        "\\start menu\\",
+        "/start menu/",
+        "\\.config\\autostart\\",
+        "/.config/autostart/",
+        "\\startup\\",
+        "/startup/",
+        "\\windows\\system32\\",
+        "/etc/",
+        "/usr/",
+        "/bin/",
+        "/sbin/",
+        "/lib/",
+    ];
+    if BLOCKED_EXPORT_PATHS
+        .iter()
+        .any(|blocked| normalized.contains(blocked))
+    {
+        return Err("Exports cannot be written to a system or startup directory.".to_owned());
+    }
+    Ok(())
+}
+
+/// A recovery copy may be the only surviving original when publication and
+/// restoration both failed. Only remove the directory after the copy was moved back.
+fn discard_backup_if_restored(backup_directory: &Path) {
+    if !backup_directory.join("previous-archive").exists() {
+        let _ = fs::remove_dir(backup_directory);
+    }
 }
 
 /// The latest identity Tutorux knows for the destination. Identities are keyed by
@@ -248,6 +310,11 @@ fn expected_target_identity(
     pending: &PendingSave,
     state: &DesktopState,
 ) -> Result<Option<ArchiveIdentity>, String> {
+    // A destination deleted outside Tutorux has no identity to protect. Save As may
+    // recreate it; stale in-memory identities must not block that.
+    if !pending.target.exists() {
+        return Ok(None);
+    }
     if let Some(known) = known_archive_identity(state, &pending.target)? {
         return Ok(Some(known));
     }
@@ -296,7 +363,6 @@ fn validate_staged_archive_file(
         }
         Some(path) if same_path(&path, &pending.target) => {}
         Some(_) => return Err(archive_location_changed_message()),
-        None if pending.target_identity.is_some() => return Err(archive_changed_message()),
         None => {}
     }
 
@@ -328,7 +394,14 @@ fn publish_staged_archive_file(
         .target
         .with_file_name(format!(".tutorux-{token}.backup"));
     let backup = backup_directory.join("previous-archive");
-    if pending.target_identity.is_some() {
+    if pending.target.exists() && pending.target_identity.is_none() {
+        return Err(
+            "Could not publish the completed archive without replacing a file that appeared in the destination."
+                .to_owned(),
+        );
+    }
+    let had_target = pending.target.exists();
+    if had_target {
         fs::create_dir(&backup_directory)
             .map_err(|error| format!("Could not reserve a safe archive backup: {error}"))?;
         if let Err(error) = fs::rename(&pending.target, &backup) {
@@ -344,7 +417,7 @@ fn publish_staged_archive_file(
 
     let publish = move_file_without_replacing(&pending.temporary, &pending.target);
     if let Err(error) = publish {
-        if pending.target_identity.is_some() {
+        if had_target {
             return Err(preserve_backup_error(
                 &backup,
                 &pending.target,
@@ -356,18 +429,19 @@ fn publish_staged_archive_file(
         ));
     }
 
-    Ok(pending
-        .target_identity
-        .as_ref()
-        .map(|_| (backup_directory, backup)))
+    Ok(had_target.then_some((backup_directory, backup)))
 }
 
 #[tauri::command]
 pub(crate) fn cancel_archive_save(
+    window: tauri::WebviewWindow,
     token: String,
     app: AppHandle,
     state: State<'_, DesktopState>,
 ) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Archive saves are only available from the main window.".to_owned());
+    }
     let pending = state
         .pending_saves
         .lock()
@@ -519,6 +593,44 @@ mod tests {
 
         validate_staged_archive_file(&pending, expected.as_ref(), Some(&advanced))
             .expect("accept Tutorux's own advanced destination");
+    }
+
+    #[test]
+    fn failed_save_keeps_a_recovery_copy_that_could_not_be_restored() {
+        let root = tempfile::tempdir().expect("temporary directory");
+        let backup_directory = root.path().join(".tutorux-test.backup");
+        fs::create_dir(&backup_directory).expect("create backup directory");
+        let backup = backup_directory.join("previous-archive");
+        fs::write(&backup, b"original archive").expect("write recovery copy");
+
+        super::discard_backup_if_restored(&backup_directory);
+
+        assert_eq!(
+            fs::read(&backup).expect("read preserved recovery copy"),
+            b"original archive"
+        );
+    }
+
+    #[test]
+    fn deleted_destination_does_not_keep_a_stale_expected_identity() {
+        use crate::desktop::{identity::remember_archive_identity, state::DesktopState};
+
+        let root = tempfile::tempdir().expect("temporary directory");
+        let target = root.path().join("lesson.tux");
+        let temporary = root.path().join(".staged-archive.partial");
+        fs::write(&target, b"archive before deletion").expect("write archive");
+        let identity = archive_identity(&target).expect("identify archive");
+        fs::write(&temporary, b"replacement").expect("write staged archive");
+        let state = DesktopState::default();
+        remember_archive_identity(&state, &target, &identity).expect("remember identity");
+        fs::remove_file(&target).expect("delete archive outside Tutorux");
+
+        let pending = pending_save(&target, &temporary, Some(identity));
+        let expected =
+            super::expected_target_identity(&pending, &state).expect("resolve expected identity");
+        assert!(expected.is_none());
+        validate_staged_archive_file(&pending, expected.as_ref(), None)
+            .expect("allow the deleted destination to be recreated");
     }
 
     #[test]
