@@ -454,3 +454,132 @@ fn wait_for(child: &mut Child) -> Option<std::process::ExitStatus> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{microseconds_to_frames, playback_unsigned, session_track_ids, validate_timeline};
+    use crate::core::archive::{create_archive_bytes, new_uuid, ArchiveSnapshot};
+    use crate::core::cli::ParsedArguments;
+    use crate::core::format::{ArchiveRecord, RecordType};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    fn chunk(
+        session_id: &str,
+        track_id: &str,
+        sequence: u64,
+        first: u64,
+        gap: u64,
+        count: u64,
+    ) -> ArchiveRecord {
+        ArchiveRecord::new(
+            RecordType::AUDIO_CHUNK,
+            new_uuid(),
+            [
+                ("session_id", session_id.to_owned()),
+                ("track_id", track_id.to_owned()),
+                ("sequence_number", sequence.to_string()),
+                ("first_sample_index", first.to_string()),
+                ("gap_before_samples", gap.to_string()),
+                ("sample_count", count.to_string()),
+                ("sample_rate_hz", "8000".to_owned()),
+                ("channel_count", "1".to_owned()),
+                ("sample_format", "pcm_s16le".to_owned()),
+            ],
+        )
+    }
+
+    fn args(options: &[(&str, &str)], flags: &[&str]) -> ParsedArguments {
+        ParsedArguments {
+            positionals: Vec::new(),
+            options: options
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect::<BTreeMap<_, _>>(),
+            flags: flags
+                .iter()
+                .map(|name| (*name).to_owned())
+                .collect::<BTreeSet<_>>(),
+        }
+    }
+
+    #[test]
+    fn converts_microseconds_without_losing_frame_precision() {
+        assert_eq!(microseconds_to_frames(0, 8_000), 0);
+        assert_eq!(microseconds_to_frames(125_000, 8_000), 1_000);
+        assert_eq!(microseconds_to_frames(1_000_000, 44_100), 44_100);
+        assert_eq!(
+            microseconds_to_frames(u64::MAX, 384_000),
+            7_083_549_724_304_467_820
+        );
+    }
+
+    #[test]
+    fn resolves_multiple_tracks_in_a_session_deterministically() {
+        let session = new_uuid();
+        let track_a = new_uuid();
+        let track_b = new_uuid();
+        let other_session = new_uuid();
+        let snapshot = ArchiveSnapshot::open_bytes(
+            create_archive_bytes("Multiple recordings", "", 1).unwrap(),
+        )
+        .unwrap();
+        let snapshot = snapshot
+            .append_records(&[
+                chunk(&session, &track_a, 0, 0, 0, 10),
+                chunk(&session, &track_b.to_uppercase(), 1, 10, 0, 10),
+                chunk(&session, &track_a, 2, 20, 0, 10),
+                chunk(&other_session, &new_uuid(), 0, 0, 0, 10),
+            ])
+            .unwrap();
+        let mut expected = vec![track_a.clone(), track_b.clone()];
+        expected.sort();
+        assert_eq!(session_track_ids(&snapshot, &session).unwrap(), expected);
+    }
+
+    #[test]
+    fn validates_a_gapless_and_gapped_timeline() {
+        let session = "session";
+        let track = "track";
+        let chunks = vec![
+            chunk(session, track, 0, 0, 0, 100),
+            chunk(session, track, 1, 110, 10, 50),
+        ];
+        assert_eq!(validate_timeline(&chunks, 8_000, 1).unwrap(), 160);
+    }
+
+    #[test]
+    fn rejects_duplicate_sequences_and_wrong_audio_parameters() {
+        let session = "session";
+        let track = "track";
+        let duplicate = vec![
+            chunk(session, track, 0, 0, 0, 10),
+            chunk(session, track, 0, 10, 0, 10),
+        ];
+        assert!(validate_timeline(&duplicate, 8_000, 1).is_err());
+        let wrong_rate = vec![chunk(session, track, 0, 0, 0, 10)];
+        assert!(validate_timeline(&wrong_rate, 44_100, 1).is_err());
+        let wrong_channels = vec![chunk(session, track, 0, 0, 0, 10)];
+        assert!(validate_timeline(&wrong_channels, 8_000, 2).is_err());
+    }
+
+    #[test]
+    fn parses_bounded_playback_numbers() {
+        assert_eq!(
+            playback_unsigned(&args(&[("duration", "250")], &[]), "duration").unwrap(),
+            Some(250)
+        );
+        assert_eq!(
+            playback_unsigned(&args(&[], &[]), "duration").unwrap(),
+            None
+        );
+        assert!(playback_unsigned(&args(&[], &["duration"]), "duration").is_err());
+        assert!(playback_unsigned(&args(&[("duration", "")], &[]), "duration").is_err());
+        assert!(playback_unsigned(&args(&[("duration", "-1")], &[]), "duration").is_err());
+        assert!(playback_unsigned(&args(&[("duration", "1.5")], &[]), "duration").is_err());
+        assert!(playback_unsigned(
+            &args(&[("duration", "18446744073709551616")], &[]),
+            "duration"
+        )
+        .is_err());
+    }
+}
