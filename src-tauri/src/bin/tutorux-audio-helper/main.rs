@@ -22,9 +22,10 @@ mod tests;
 
 use std::io::{self, Write};
 
-fn main() {
+fn main() -> std::process::ExitCode {
     if let Err(error) = args::run() {
         let _ = writeln!(io::stderr().lock(), "tutorux-audio-helper: {error}");
-        std::process::exit(1);
+        return std::process::ExitCode::from(1);
     }
+    std::process::ExitCode::SUCCESS
 }
