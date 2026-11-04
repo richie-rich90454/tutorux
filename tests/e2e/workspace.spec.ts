@@ -579,6 +579,7 @@ test("creates, updates, exports, and reopens a portable tutoring workspace", asy
     await page.getByRole("button", { name: "Save entry" }).click();
     await expect(page.getByRole("heading", { name: "A useful way into balance" })).toBeVisible();
     await expect(page.locator(".journal-label-chips")).toContainText("Growing confidence");
+    await page.getByText("Filters", { exact: true }).click();
     await page.getByLabel("Filter by collection").selectOption({ label: "Growing confidence" });
     await expect(page.locator(".record-list-journal")).toContainText("A useful way into balance");
     await page.getByLabel("Filter by collection").selectOption("");
