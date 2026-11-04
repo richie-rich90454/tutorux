@@ -179,6 +179,8 @@ export function AiPage(props: AiPageProps): JSX.Element {
     let credentialStorageTouched = false;
     onCleanup(() => catalogController?.abort());
     const currentProvider = createMemo(() => providerById(providerId()) ?? AI_PROVIDERS[0]!);
+    // Custom OpenAI-compatible hosts cannot safely use a key saved for another endpoint.
+    const keychainSupported = createMemo(() => currentProvider().id !== "openai-compatible");
     const savedCredential = createMemo(() =>
         props.credentials.find(
             (record) =>
@@ -246,10 +248,14 @@ export function AiPage(props: AiPageProps): JSX.Element {
             .slice(0, 100);
     });
     createEffect(() => {
-        if (props.systemCredentialStoreAvailable && !credentialStorageTouched) {
+        if (
+            props.systemCredentialStoreAvailable &&
+            keychainSupported() &&
+            !credentialStorageTouched
+        ) {
             setCredentialStorage("system-keychain");
         } else if (
-            !props.systemCredentialStoreAvailable &&
+            (!props.systemCredentialStoreAvailable || !keychainSupported()) &&
             credentialStorage() === "system-keychain"
         ) {
             setCredentialStorage("encrypted-archive");
@@ -628,11 +634,7 @@ export function AiPage(props: AiPageProps): JSX.Element {
         }
         setImportingResponse(true);
         try {
-            const imported = await props.onImportResponse(
-                file,
-                sessionId(),
-                templateId() === "auto" ? "general" : templateId(),
-            );
+            const imported = await props.onImportResponse(file, sessionId(), templateId());
             setImportMessage(
                 `Imported response as ${imported.status}. Job ${imported.jobId.slice(0, 8)} and guide ${imported.guideId.slice(0, 8)} are saved for review.${imported.warnings.length ? ` ${imported.warnings.join(" ")}` : ""}`,
             );
@@ -1445,7 +1447,9 @@ export function AiPage(props: AiPageProps): JSX.Element {
                             <legend class={"text-xs font-semibold text-faint"}>
                                 Store this key in
                             </legend>
-                            <Show when={props.systemCredentialStoreAvailable}>
+                            <Show
+                                when={props.systemCredentialStoreAvailable && keychainSupported()}
+                            >
                                 <label
                                     class={
                                         "flex items-start gap-2 text-xs leading-snug text-ink-soft"
