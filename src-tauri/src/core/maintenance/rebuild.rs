@@ -126,6 +126,10 @@ pub(crate) fn build_archive(
                     index.insert(alias, *latest_offset);
                 }
                 Some(existing) if existing == *latest_offset => {}
+                // Identical content shares a BLOB alias, including the empty placeholder
+                // manifests created for each audio track and take. The alias is a lookup
+                // convenience, so keeping the first record is correct.
+                Some(_) if alias.starts_with("BLOB:") => {}
                 Some(_) => {
                     return err(
                         "archive_compaction_index_conflict",
