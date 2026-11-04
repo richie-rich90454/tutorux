@@ -45,6 +45,44 @@ test.beforeEach(async ({ page }) => {
     });
 });
 
+test("protects unsaved work when opening another archive and saves a separate copy", async ({
+    page,
+}, testInfo) => {
+    await page.goto("/");
+    await page.locator("#main-content").getByRole("button", { name: "Create archive" }).click();
+    await page.getByLabel("Workspace name").fill("Archive switch guard QA");
+    const initialDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Create workspace" }).click();
+    await (await initialDownload).saveAs(testInfo.outputPath("switch-guard-initial.tux"));
+    await expect(
+        page.getByRole("heading", { name: "Teaching journal", exact: true }),
+    ).toBeVisible();
+
+    await navigateToSidebarView(page, "Students");
+    await page.getByRole("button", { name: "Add student", exact: true }).click();
+    await page.getByLabel("Student name").fill("Unsaved Student");
+    await page.getByRole("button", { name: "Add student", exact: true }).last().click();
+    await expect(page.getByText("Unsaved Student", { exact: true })).toBeVisible();
+
+    await page.keyboard.press("Control+o");
+    await expect(
+        page.locator(".toast").filter({ hasText: "Save or download your current workspace" }),
+    ).toBeVisible();
+
+    await navigateToSidebarView(page, "Archive health");
+    const saveChanges = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Save changes", exact: true }).click();
+    await (await saveChanges).saveAs(testInfo.outputPath("switch-guard-saved.tux"));
+    await expect(page.getByRole("button", { name: "Save a copy", exact: true })).toBeVisible();
+
+    const copyDownload = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Save a copy", exact: true }).click();
+    const copyPath = testInfo.outputPath("switch-guard-copy.tux");
+    await (await copyDownload).saveAs(copyPath);
+    const copyBytes = await readFile(copyPath);
+    expect(copyBytes.byteLength).toBeGreaterThan(0);
+});
+
 test("keeps the empty journal state compact instead of inheriting the welcome layout", async ({
     page,
 }, testInfo) => {
