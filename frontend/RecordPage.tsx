@@ -286,116 +286,123 @@ export function RecordPage(props: {
                     onArchive={(record) => props.onArchiveOrganizer?.(record)}
                     onRestore={(record) => props.onRestoreOrganizer?.(record)}
                 />
-                <div
-                    class="journal-filter-row mb-[11px] grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] items-end gap-x-[13px] gap-y-[11px] text-[13px] text-muted"
-                    aria-label="Filter journal entries"
-                >
-                    <label class={labelBase}>
-                        <span>Filter by collection</span>
-                        <select
-                            value={collectionFilter()}
-                            onChange={(event) => setCollectionFilter(event.currentTarget.value)}
-                            class={selectBase}
-                        >
-                            <option value="">All collections</option>
-                            <For each={props.state.collections}>
-                                {(item) => (
-                                    <option value={item.id}>
-                                        {field(item, "name", "Untitled collection")}
-                                    </option>
-                                )}
-                            </For>
-                        </select>
-                    </label>
-                    <label class={labelBase}>
-                        <span>Filter by tag</span>
-                        <select
-                            value={tagFilter()}
-                            onChange={(event) => setTagFilter(event.currentTarget.value)}
-                            class={selectBase}
-                        >
-                            <option value="">All tags</option>
-                            <For each={props.state.tags}>
-                                {(item) => (
-                                    <option value={item.id}>
-                                        {field(item, "name", "Untitled tag")}
-                                    </option>
-                                )}
-                            </For>
-                        </select>
-                    </label>
-                    <label class={labelBase}>
-                        <span>Sort</span>
-                        <select
-                            value={journalSort()}
-                            onChange={(event) =>
-                                setJournalSort(
-                                    event.currentTarget.value as "newest" | "oldest" | "title",
-                                )
-                            }
-                            class={selectBase}
-                        >
-                            <option value="newest">Newest first</option>
-                            <option value="oldest">Oldest first</option>
-                            <option value="title">Title</option>
-                        </select>
-                    </label>
-                    <label class={labelBase}>
-                        <span>From date</span>
-                        <DatePicker
-                            id="journal-from-date"
-                            value={journalFrom()}
-                            aria-label="Filter from date"
-                            onChange={setJournalFrom}
-                        />
-                    </label>
-                    <label class={labelBase}>
-                        <span>To date</span>
-                        <DatePicker
-                            id="journal-to-date"
-                            value={journalTo()}
-                            aria-label="Filter to date"
-                            onChange={setJournalTo}
-                        />
-                    </label>
-                    <label class={labelBase}>
-                        <span>Has sessions</span>
-                        <select
-                            value={hasSessions()}
-                            onChange={(event) =>
-                                setHasSessions(event.currentTarget.value as "all" | "yes" | "no")
-                            }
-                            class={selectBase}
-                        >
-                            <option value="all">Any entry</option>
-                            <option value="yes">Linked to a session</option>
-                            <option value="no">No linked sessions</option>
-                        </select>
-                    </label>
-                    <Show
-                        when={
-                            collectionFilter() ||
-                            tagFilter() ||
-                            journalFrom() ||
-                            journalTo() ||
-                            hasSessions() !== "all"
-                        }
+                <details class="mb-[11px] rounded-[5px] border border-line bg-surface px-3 py-2">
+                    <summary class="cursor-pointer text-xs font-semibold text-ink-soft">
+                        Filters
+                    </summary>
+                    <div
+                        class="journal-filter-row mt-2 grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] items-end gap-x-[13px] gap-y-[11px] text-[13px] text-muted"
+                        aria-label="Filter journal entries"
                     >
-                        <button
-                            class="text-action inline-flex cursor-pointer items-center gap-[5px] border-0 bg-transparent p-0 text-xs font-semibold text-accent hover:text-accent-hover"
-                            type="button"
-                            onClick={() => {
-                                setCollectionFilter("");
-                                setTagFilter("");
-                                setJournalFrom("");
-                                setJournalTo("");
-                                setHasSessions("all");
-                            }}
+                        <label class={labelBase}>
+                            <span>Filter by collection</span>
+                            <select
+                                value={collectionFilter()}
+                                onChange={(event) => setCollectionFilter(event.currentTarget.value)}
+                                class={selectBase}
+                            >
+                                <option value="">All collections</option>
+                                <For each={props.state.collections}>
+                                    {(item) => (
+                                        <option value={item.id}>
+                                            {field(item, "name", "Untitled collection")}
+                                        </option>
+                                    )}
+                                </For>
+                            </select>
+                        </label>
+                        <label class={labelBase}>
+                            <span>Filter by tag</span>
+                            <select
+                                value={tagFilter()}
+                                onChange={(event) => setTagFilter(event.currentTarget.value)}
+                                class={selectBase}
+                            >
+                                <option value="">All tags</option>
+                                <For each={props.state.tags}>
+                                    {(item) => (
+                                        <option value={item.id}>
+                                            {field(item, "name", "Untitled tag")}
+                                        </option>
+                                    )}
+                                </For>
+                            </select>
+                        </label>
+                        <label class={labelBase}>
+                            <span>Sort</span>
+                            <select
+                                value={journalSort()}
+                                onChange={(event) =>
+                                    setJournalSort(
+                                        event.currentTarget.value as "newest" | "oldest" | "title",
+                                    )
+                                }
+                                class={selectBase}
+                            >
+                                <option value="newest">Newest first</option>
+                                <option value="oldest">Oldest first</option>
+                                <option value="title">Title</option>
+                            </select>
+                        </label>
+                        <label class={labelBase}>
+                            <span>From date</span>
+                            <DatePicker
+                                id="journal-from-date"
+                                value={journalFrom()}
+                                aria-label="Filter from date"
+                                onChange={setJournalFrom}
+                            />
+                        </label>
+                        <label class={labelBase}>
+                            <span>To date</span>
+                            <DatePicker
+                                id="journal-to-date"
+                                value={journalTo()}
+                                aria-label="Filter to date"
+                                onChange={setJournalTo}
+                            />
+                        </label>
+                        <label class={labelBase}>
+                            <span>Has sessions</span>
+                            <select
+                                value={hasSessions()}
+                                onChange={(event) =>
+                                    setHasSessions(
+                                        event.currentTarget.value as "all" | "yes" | "no",
+                                    )
+                                }
+                                class={selectBase}
+                            >
+                                <option value="all">Any entry</option>
+                                <option value="yes">Linked to a session</option>
+                                <option value="no">No linked sessions</option>
+                            </select>
+                        </label>
+                        <Show
+                            when={
+                                collectionFilter() ||
+                                tagFilter() ||
+                                journalFrom() ||
+                                journalTo() ||
+                                hasSessions() !== "all"
+                            }
                         >
-                            Clear filters
-                        </button>
-                    </Show>
-                </div>
+                            <button
+                                class="text-action inline-flex cursor-pointer items-center gap-[5px] border-0 bg-transparent p-0 text-xs font-semibold text-accent hover:text-accent-hover"
+                                type="button"
+                                onClick={() => {
+                                    setCollectionFilter("");
+                                    setTagFilter("");
+                                    setJournalFrom("");
+                                    setJournalTo("");
+                                    setHasSessions("all");
+                                }}
+                            >
+                                Clear filters
+                            </button>
+                        </Show>
+                    </div>
+                </details>
             </Show>
             <section class="record-list-shell overflow-hidden rounded-[5px] border border-line bg-surface">
                 <div
