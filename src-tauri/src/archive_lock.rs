@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, Weak},
 };
 
-pub(crate) type SharedArchiveLock = Arc<Mutex<ArchiveLock>>;
+pub(crate) use crate::archive_lock_support::SharedArchiveLock;
 
 #[derive(Default)]
 pub(crate) struct ArchiveLockRegistry {
