@@ -56,7 +56,12 @@ pub(crate) fn write_transaction(
         if let Some(previous_offset) = previous {
             let previous_frame =
                 crate::core::index::read_frame_at(snapshot.source.as_ref(), previous_offset)?;
-            revision = previous_frame.revision + 1;
+            revision = previous_frame.revision.checked_add(1).ok_or_else(|| {
+                CoreError::new(
+                    "record_revision_overflow",
+                    "This record revision cannot be advanced.",
+                )
+            })?;
             let previous_record = snapshot
                 .get_record(change.record_type, &change.id)?
                 .ok_or_else(|| {
@@ -132,7 +137,12 @@ pub(crate) fn write_transaction(
     let root_hash = sha256(&tree.root_payload);
     let transaction_id = new_uuid();
     let commit_offset = cursor;
-    let generation = snapshot.commit.generation + 1;
+    let generation = snapshot.commit.generation.checked_add(1).ok_or_else(|| {
+        CoreError::new(
+            "archive_generation_overflow",
+            "This archive generation cannot be advanced.",
+        )
+    })?;
     let commit_body = encode_commit_payload(
         generation,
         snapshot.commit.offset,
