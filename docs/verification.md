@@ -22,7 +22,7 @@ React-style `.tsx` SolidJS components and `index.html` are presentation code exe
 | `pnpm exec playwright test` | 35 pass |
 | `cargo fmt --check` | pass |
 | `cargo clippy --all-targets --all-features --locked -D warnings` | pass |
-| `cargo test --all-features --locked` | 245 lib + 8 helper pass |
+| `cargo test --all-features --locked` | 246 lib + 8 helper pass |
 | `node scripts/rust-parity/run.mjs` | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm audit --audit-level high` | no known vulnerabilities |
 | `pnpm run build` | pass |
