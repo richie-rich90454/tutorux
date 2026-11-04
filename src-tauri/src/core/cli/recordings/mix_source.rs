@@ -124,3 +124,55 @@ fn decode_sample(bytes: &[u8], format: &str) -> i32 {
     };
     value.clamp(-32_768.0, 32_767.0) as i32
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_sample, Source};
+    use crate::core::archive::{new_uuid, ArchiveRecord};
+    use crate::core::format::RecordType;
+
+    fn chunk(first_sample_index: u64, samples: &[i16]) -> ArchiveRecord {
+        let mut blob = Vec::with_capacity(samples.len() * 2);
+        for sample in samples {
+            blob.extend_from_slice(&sample.to_le_bytes());
+        }
+        let mut record = ArchiveRecord::new(
+            RecordType::AUDIO_CHUNK,
+            new_uuid(),
+            [("first_sample_index", first_sample_index.to_string())],
+        );
+        record.blob = blob;
+        record
+    }
+
+    #[test]
+    fn decodes_every_supported_pcm_width_and_clamps() {
+        assert_eq!(decode_sample(&[0x80], "pcm_u8"), 0);
+        assert_eq!(
+            decode_sample(&(-32_768i16).to_le_bytes(), "pcm_s16le"),
+            -32_768
+        );
+        assert_eq!(decode_sample(&[0x00, 0x00, 0x80], "pcm_s24le"), -32_768);
+        assert_eq!(decode_sample(&i32::MIN.to_le_bytes(), "pcm_s32le"), -32_768);
+        assert_eq!(decode_sample(&f32::INFINITY.to_le_bytes(), "pcm_f32le"), 0);
+        assert_eq!(decode_sample(&[0], "unknown"), 0);
+    }
+
+    #[test]
+    fn reads_across_chunk_boundaries_and_respects_gaps() {
+        let mut source = Source::new(
+            8_000,
+            1,
+            "pcm_s16le".to_owned(),
+            2,
+            4,
+            vec![(2, 3)],
+            vec![chunk(0, &[1, 2]), chunk(3, &[4])],
+        );
+        assert_eq!(source.sample_at(0), Some(vec![1]));
+        assert_eq!(source.sample_at(1), Some(vec![2]));
+        assert_eq!(source.sample_at(2), None);
+        assert_eq!(source.sample_at(3), Some(vec![4]));
+        assert_eq!(source.sample_at(4), None);
+    }
+}
