@@ -129,7 +129,7 @@ pub fn commit_published_end(source: &dyn ByteSource, commit: &CommitInfo) -> Res
                 return Ok(position + index as u64 + LOCATOR_SIZE);
             }
         }
-        position += length as u64;
+        position += (length as u64).saturating_sub(LOCATOR_SIZE - 1).max(1);
     }
     err(
         "archive_locator_invalid",
@@ -179,7 +179,7 @@ pub fn find_consistent_commit(
             current.generation == 1
         } else {
             decode_commit(source, current.previous_offset)
-                .map(|previous| previous.generation + 1 == current.generation)
+                .map(|previous| previous.generation.checked_add(1) == Some(current.generation))
                 .unwrap_or(false)
         };
         if !valid_chain {
