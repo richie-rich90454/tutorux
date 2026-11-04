@@ -111,28 +111,42 @@ fn store_error() -> String {
 }
 
 #[tauri::command]
-pub async fn ai_credential_store_available() -> Result<bool, String> {
+pub async fn ai_credential_store_available(window: tauri::WebviewWindow) -> Result<bool, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     tauri::async_runtime::spawn_blocking(store_available)
         .await
         .map_err(|_| "The system credential store could not be checked.".to_owned())
 }
 
 #[tauri::command]
-pub async fn has_ai_credential(provider_id: String) -> Result<bool, String> {
+pub async fn has_ai_credential(
+    window: tauri::WebviewWindow,
+    provider_id: String,
+) -> Result<bool, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     tauri::async_runtime::spawn_blocking(move || contains(&provider_id))
         .await
         .map_err(|_| "The system credential store could not be checked.".to_owned())?
 }
 
 #[tauri::command]
-pub async fn save_ai_credential(provider_id: String, value: String) -> Result<(), String> {
+pub async fn save_ai_credential(
+    window: tauri::WebviewWindow,
+    provider_id: String,
+    value: String,
+) -> Result<(), String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     tauri::async_runtime::spawn_blocking(move || save(&provider_id, value))
         .await
         .map_err(|_| "The system credential store could not save this API key.".to_owned())?
 }
 
 #[tauri::command]
-pub async fn remove_ai_credential(provider_id: String) -> Result<(), String> {
+pub async fn remove_ai_credential(
+    window: tauri::WebviewWindow,
+    provider_id: String,
+) -> Result<(), String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     tauri::async_runtime::spawn_blocking(move || remove(&provider_id))
         .await
         .map_err(|_| "The system credential store could not remove this API key.".to_owned())?
