@@ -6,6 +6,7 @@ use super::{
     },
     ConsoleRunResult,
 };
+use crate::archive_lock_support::{register_ambient_archive_lock, SharedArchiveLock};
 use crate::core::cli::{execute_cli_with_secrets, Cancellation};
 use std::{
     path::Path,
@@ -35,6 +36,7 @@ pub(super) fn execute_console_command(
     passphrase: &Zeroizing<String>,
     new_passphrase: &Zeroizing<String>,
     cancellation: &AtomicBool,
+    archive_lock: SharedArchiveLock,
 ) -> Result<ConsoleRunResult, String> {
     if cancellation.load(Ordering::Acquire) {
         return Ok(ConsoleRunResult {
@@ -86,6 +88,7 @@ pub(super) fn execute_console_command(
 
     let observed = AtomicBool::new(false);
     let mut output = ConsoleOutputSink::new(app.clone(), run_id);
+    let _ambient_lock = register_ambient_archive_lock(archive_path, archive_lock)?;
     let exit_code = execute_cli_with_secrets(
         &cli_arguments,
         &mut output,
