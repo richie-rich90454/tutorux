@@ -345,6 +345,30 @@ fn replace_existing_publishes_while_holding_the_exclusive_lock() {
 }
 
 #[test]
+fn replace_existing_reuses_an_ambient_desktop_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("archive.tux");
+    std::fs::write(&path, b"old archive bytes").unwrap();
+    let shared = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::archive_lock_support::ArchiveLock::try_acquire(
+            &path,
+            crate::archive_lock_support::LockMode::Shared,
+        )
+        .unwrap(),
+    ));
+    let _registration =
+        crate::archive_lock_support::register_ambient_archive_lock(&path, shared.clone()).unwrap();
+
+    save::replace_existing(&path, b"old archive bytes", b"replacement archive bytes").unwrap();
+
+    assert_eq!(std::fs::read(&path).unwrap(), b"replacement archive bytes");
+    assert_eq!(
+        shared.lock().unwrap().mode(),
+        Some(crate::archive_lock_support::LockMode::Shared)
+    );
+}
+
+#[test]
 fn replace_existing_rejects_a_stale_archive_image() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("archive.tux");
