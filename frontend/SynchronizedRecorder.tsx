@@ -1,5 +1,5 @@
 import { buttonOutline, buttonPrimary, cn } from "./ui";
-import { createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import { newUuid, RecordType } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
 import type { ArchiveRecord } from "./archive/format";
@@ -851,11 +851,30 @@ export function SynchronizedRecorder(props: Props) {
 
     const nativeDesktop = () => platform.kind === "desktop";
 
+    const banner = createMemo(() => {
+        if (error()) return { text: error(), error: true };
+        if (pending())
+            return { text: "The take is saved locally. Retry the archive save.", error: true };
+        const hint =
+            state() === "requesting"
+                ? "Waiting for source permissions…"
+                : state() === "pausing" || state() === "resuming"
+                  ? "Changing recording state…"
+                  : state() === "saving"
+                    ? "Preparing recording…"
+                    : state() === "paused"
+                      ? "Recording paused; selected audio sources are muted."
+                      : "";
+        if (status()) return { text: status(), error: false };
+        if (hint) return { text: hint, error: false };
+        return null;
+    });
+
     return (
         <section
             class={cn(
                 "transcript-capture-panel",
-                "max-[650px]:gap-[11px] max-[650px]:grid-cols-[minmax(0,_1fr)] max-[650px]:p-3.5 min-[651px]:max-[900px]:grid-cols-[minmax(0,_1fr)_auto] items-center bg-[color-mix(in_srgb,_var(--accent-soft)_48%,_var(--surface))] rounded-[9px] border border-[color-mix(in_srgb,_var(--accent)_19%,_var(--line))] grid gap-y-[13px] gap-x-4.5 grid-cols-[minmax(220px,_1fr)_minmax(210px,_auto)_auto] mt-0 mr-0 mb-3.5 ml-0 py-[15px] px-[17px]",
+                "grid gap-3 rounded-[9px] border border-[color-mix(in_srgb,_var(--accent)_19%,_var(--line))] bg-[color-mix(in_srgb,_var(--accent-soft)_48%,_var(--surface))] p-[17px] max-sm:p-3.5",
             )}
             aria-label="Synchronized audio recording"
         >
@@ -1093,11 +1112,20 @@ export function SynchronizedRecorder(props: Props) {
                 </Show>
             </div>
 
-            <Show when={status()}>
-                <p role="status">{status()}</p>
-            </Show>
-            <Show when={error()}>
-                <p role="alert">{error()}</p>
+            <Show when={banner()}>
+                {(item) => (
+                    <p
+                        class={cn(
+                            "m-0 rounded-[5px] border px-3 py-2 text-xs leading-relaxed",
+                            item().error
+                                ? "border-[var(--danger-soft)] bg-[var(--danger-soft)] text-danger"
+                                : "border-line bg-surface text-muted",
+                        )}
+                        role={item().error ? "alert" : "status"}
+                    >
+                        {item().text}
+                    </p>
+                )}
             </Show>
         </section>
     );
