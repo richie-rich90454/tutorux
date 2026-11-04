@@ -273,12 +273,6 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
         const request = ++previewRun;
         setInventory(null);
         setInventoryError("");
-        setStudents({ mode: "all", ids: new Set() });
-        setSessions({ mode: "all", ids: new Set() });
-        setTracks({ mode: "none", ids: new Set() });
-        setIncludePrivate(false);
-        setIncludeGenerationLogs(false);
-        setIncludeCredentials(false);
         setPreview(null);
         setConfirmed(false);
         setWorking("inventory");
@@ -330,6 +324,23 @@ export function SanitizedCopy(props: SanitizedCopyProps): JSX.Element {
                     `${a.sessionName}\0${a.label}`.localeCompare(`${b.sessionName}\0${b.label}`),
                 ),
             });
+            // Keep the tutor's privacy choices across snapshot updates. Only drop
+            // selections whose records no longer exist; never quietly widen to all.
+            const studentIds = new Set(availableStudents.map((record) => record.id));
+            const sessionIds = new Set(availableSessions.map((record) => record.id));
+            const trackIds = new Set([...byTrack.values()].map((track) => track.id));
+            setStudents((current) => ({
+                ...current,
+                ids: new Set([...current.ids].filter((id) => studentIds.has(id))),
+            }));
+            setSessions((current) => ({
+                ...current,
+                ids: new Set([...current.ids].filter((id) => sessionIds.has(id))),
+            }));
+            setTracks((current) => ({
+                ...current,
+                ids: new Set([...current.ids].filter((id) => trackIds.has(id))),
+            }));
         } catch (cause) {
             if (request === previewRun)
                 setInventoryError(cause instanceof Error ? cause.message : String(cause));
