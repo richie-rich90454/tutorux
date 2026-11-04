@@ -675,7 +675,7 @@ export function TranscriptPage(props: {
                             <button
                                 class={buttonOutline}
                                 type="button"
-                                disabled={props.disabled || captureRecorder?.state === "recording"}
+                                disabled={props.disabled || captureState() !== "idle"}
                                 onClick={() => {
                                     const session = selectedSession();
                                     if (session) props.onRecoverNativeAudio(session.id);
@@ -1376,9 +1376,10 @@ function TranscriptCueCard(props: {
     }
 
     function beginEditing(): void {
+        const timestamped = field(props.record, "timestamp_state") !== "not-timestamped";
         setText(field(props.record, "text"));
-        setStart(transcriptTimeInput(field(props.record, "start_time_us")));
-        setEnd(transcriptTimeInput(field(props.record, "end_time_us")));
+        setStart(timestamped ? transcriptTimeInput(field(props.record, "start_time_us")) : "");
+        setEnd(timestamped ? transcriptTimeInput(field(props.record, "end_time_us")) : "");
         setSpeaker(field(props.record, "speaker_label", field(props.record, "speaker_name")));
         setEditing(true);
     }
