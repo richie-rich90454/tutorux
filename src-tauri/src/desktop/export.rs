@@ -82,6 +82,13 @@ fn write_export_contents(path: String, contents: String) -> Result<(), String> {
     if target.is_dir() {
         return Err("The export destination is a folder.".to_owned());
     }
+    let resolved = target.to_string_lossy().to_lowercase();
+    if BLOCKED_EXPORT_PATHS
+        .iter()
+        .any(|blocked| resolved.contains(blocked))
+    {
+        return Err("Exports cannot be written to a system or startup directory.".to_owned());
+    }
 
     let token = Uuid::new_v4().to_string();
     let temporary = parent.join(format!(".tutorux-export-{token}.partial"));
