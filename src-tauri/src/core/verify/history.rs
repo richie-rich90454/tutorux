@@ -43,7 +43,10 @@ pub fn verify_history(snapshot: &ArchiveSnapshot) -> Result<HistoryVerificationR
                 || frame.record_type != latest.record_type
                 || !frame.id.eq_ignore_ascii_case(&latest.id)
                 || newer
-                    .map(|revision| frame.revision >= revision || frame.revision + 1 != revision)
+                    .map(|revision| {
+                        frame.revision >= revision
+                            || frame.revision.checked_add(1) != Some(revision)
+                    })
                     .unwrap_or(false)
                 || (frame.previous_offset != 0 && frame.previous_offset >= offset)
             {
@@ -113,7 +116,7 @@ pub fn verify_history(snapshot: &ArchiveSnapshot) -> Result<HistoryVerificationR
             );
         }
         let previous = decode_commit(snapshot.source.as_ref(), candidate.previous_offset)?;
-        if previous.generation + 1 != candidate.generation {
+        if previous.generation.checked_add(1) != Some(candidate.generation) {
             return err(
                 "archive_commit_chain_invalid",
                 "Archive commit generations are not consecutive.",
