@@ -181,6 +181,21 @@ export function TranscriptPage(props: {
                 activeTakeIds.has(field(track, "recording_take_id").toLowerCase()),
         );
     });
+    const [playbackPositionUs, setPlaybackPositionUs] = createSignal(0n);
+    const [playbackOriginUs, setPlaybackOriginUs] = createSignal(0n);
+    const activeCueId = createMemo(() => {
+        const position = playbackPositionUs();
+        let previous = "";
+        for (const cue of sessionRecords()) {
+            if (field(cue, "timestamp_state") === "not-timestamped") continue;
+            const start = safeBigInt(field(cue, "start_time_us", "0"));
+            const end = safeBigInt(field(cue, "end_time_us", "0"));
+            if (start > position) continue;
+            previous = cue.id;
+            if (end > position) return cue.id;
+        }
+        return previous;
+    });
     const selectedCues = createMemo(() => {
         const selected = new Set(selectedCueIds());
         return sessionRecords().filter((record) => selected.has(record.id));
@@ -214,6 +229,7 @@ export function TranscriptPage(props: {
     let fileInput: HTMLInputElement | undefined;
     let audioFileInput: HTMLInputElement | undefined;
     let audioPlayer: HTMLAudioElement | undefined;
+    let detachAudioPlayer: (() => void) | undefined;
     let currentAudioUrl: string | null = null;
     let captureRecorder: MediaRecorder | undefined;
     let captureStream: MediaStream | undefined;
@@ -227,11 +243,35 @@ export function TranscriptPage(props: {
     let captureCancelled = false;
 
     function clearAudio(): void {
+        detachAudioPlayer?.();
+        detachAudioPlayer = undefined;
+        audioPlayer = undefined;
         if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
         currentAudioUrl = null;
         setAudioUrl(null);
         setAudioPreview(null);
+        setPlaybackPositionUs(0n);
+        setPlaybackOriginUs(0n);
         setPlaybackError("");
+    }
+
+    function attachAudioPlayer(element: HTMLAudioElement): void {
+        detachAudioPlayer?.();
+        audioPlayer = element;
+        const origin = playbackOriginUs();
+        const update = (): void => {
+            setPlaybackPositionUs(
+                origin + BigInt(Math.max(0, Math.round(element.currentTime * 1_000_000))),
+            );
+        };
+        element.addEventListener("timeupdate", update);
+        element.addEventListener("seeked", update);
+        element.addEventListener("loadedmetadata", update);
+        detachAudioPlayer = () => {
+            element.removeEventListener("timeupdate", update);
+            element.removeEventListener("seeked", update);
+            element.removeEventListener("loadedmetadata", update);
+        };
     }
 
     onCleanup(() => {
@@ -432,6 +472,8 @@ export function TranscriptPage(props: {
                 start + 30_000_000n,
             );
             clearAudio();
+            setPlaybackOriginUs(start);
+            setPlaybackPositionUs(start);
             const url = URL.createObjectURL(
                 new Blob([preview.wav.slice().buffer as ArrayBuffer], { type: "audio/wav" }),
             );
@@ -1018,7 +1060,7 @@ export function TranscriptPage(props: {
                         <AudioWaveform
                             preview={audioPreview()!}
                             url={audioUrl()!}
-                            onPlayer={(element) => (audioPlayer = element)}
+                            onPlayer={attachAudioPlayer}
                         />
                     </Show>
                     <Show when={selectedSession() && selectedTrack()}>
@@ -1121,6 +1163,7 @@ export function TranscriptPage(props: {
                                             disabled={props.disabled}
                                             audioAvailable={sessionTracks().length > 0}
                                             selected={selectedCueIds().includes(record.id)}
+                                            playing={activeCueId() === record.id}
                                             assets={sessionAssets()}
                                             onListen={(cue) => void playFromCue(cue)}
                                             onToggleSelection={(cue, selected) =>
@@ -1301,6 +1344,7 @@ function TranscriptCueCard(props: {
     disabled: boolean;
     audioAvailable: boolean;
     selected: boolean;
+    playing: boolean;
     assets: ArchiveRecord[];
     onListen: (record: ArchiveRecord) => void;
     onToggleSelection: (record: ArchiveRecord, selected: boolean) => void;
@@ -1430,7 +1474,14 @@ function TranscriptCueCard(props: {
     }
 
     return (
-        <article class="transcript-cue grid grid-cols-[35px_minmax(0,1fr)] gap-3 border-b border-line-soft px-[18px] py-[17px] last:border-b-0">
+        <article
+            class={cn(
+                "transcript-cue grid grid-cols-[35px_minmax(0,1fr)] gap-3 border-b border-line-soft px-[18px] py-[17px] last:border-b-0 border-l-2 border-l-transparent transition-colors",
+                props.playing && "is-playing border-l-accent bg-accent-soft/35",
+            )}
+            aria-current={props.playing ? "true" : undefined}
+            data-cue-id={props.record.id}
+        >
             <div class="transcript-cue-marker flex flex-col items-center gap-2 pt-0.5 text-xs font-semibold tabular-nums text-faint">
                 <input
                     type="checkbox"
