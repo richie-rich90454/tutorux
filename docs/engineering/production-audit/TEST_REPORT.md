@@ -10,7 +10,7 @@ Environment: Windows 11, Node 24, pnpm 12, Rust stable 1.97, Tauri 2. All browse
 | `pnpm test` | PASS | 111 files, 2,130 tests |
 | `pnpm run test:coverage` | PASS | 100% statements, branches, functions, lines |
 | `pnpm exec playwright test --workers=2` | PASS | 36 tests, headless Chromium |
-| `node scripts/e2e-coverage.mjs --check` | PASS | statements 48.57%, branches 35.13%, functions 58.79%, lines 48.80% (floors 48/34/58/48) |
+| `node scripts/e2e-coverage.mjs --check` | PASS | statements 48.72%, branches 35.21%, functions 58.99%, lines 48.92% (floors 48/34/58/48) |
 | `cargo fmt --check` | PASS | after formatting |
 | `cargo clippy --locked --offline --all-targets --all-features -D warnings` | PASS | no warnings |
 | `cargo check --locked --offline --all-features --bins` | PASS | desktop and CLI targets |
