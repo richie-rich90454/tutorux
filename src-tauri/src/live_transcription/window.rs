@@ -298,6 +298,42 @@ mod tests {
     }
 
     #[test]
+    fn live_window_runs_the_bundled_model() {
+        use super::{LiveWhisperOptions, WindowProcessor};
+        use std::sync::{atomic::AtomicBool, Arc};
+        let context = crate::transcription::embedded_whisper_context().expect("model loads");
+        let mut state = context.create_state().expect("state");
+        let options = LiveWhisperOptions {
+            model_name: "model".to_owned(),
+            language: "auto".to_owned(),
+            window_seconds: 1,
+            thread_count: 1,
+            sample_rate_hz: 16_000,
+            first_sample_index: 0,
+            timeline_base_sample_index: 0,
+        };
+        let mut window = WindowProcessor::new(1, 0, 0, 16_000).expect("window");
+        let shared = Mutex::new(SharedOutput {
+            status: "running".to_owned(),
+            ..SharedOutput::default()
+        });
+        let cancelled = Arc::new(AtomicBool::new(false));
+        window
+            .consume(
+                context,
+                &mut state,
+                &options,
+                "model",
+                "backend",
+                &vec![0.0; 16_000],
+                &cancelled,
+                &shared,
+            )
+            .expect("live window");
+        assert!(!shared.lock().expect("shared").status.is_empty());
+    }
+
+    #[test]
     fn queue_limit_back_pressure_fails_the_transcript() {
         let mut output = SharedOutput {
             status: "running".to_owned(),
