@@ -62,7 +62,7 @@ export const errorText = "text-xs font-medium text-danger";
 export const fieldGrid = "grid gap-2.5 sm:grid-cols-2";
 
 export const pageBody =
-    "mx-auto w-full max-w-[1320px] px-5 pt-5 pb-[78px] sm:px-7 sm:pt-7 sm:pb-8 lg:px-9 lg:pb-10";
+    "mx-auto w-full max-w-[1240px] px-5 pt-5 pb-[78px] sm:px-7 sm:pt-6 sm:pb-8 lg:px-9 lg:pb-10";
 
 export const pageToolbar =
     "sticky top-0 z-10 flex min-h-11 flex-wrap items-center justify-between gap-2 border-b border-line-soft bg-canvas/95 px-4 py-2 backdrop-blur sm:px-6";
@@ -73,7 +73,7 @@ export const cardHeading = "flex flex-wrap items-start justify-between gap-3";
 
 export const eyebrow = "text-xs font-medium tracking-wide text-muted";
 
-export const heading1 = "text-[28px] font-semibold leading-tight tracking-tight text-ink";
+export const heading1 = "text-[26px] font-semibold leading-tight tracking-tight text-ink";
 
 export const heading2 = "text-lg font-semibold leading-snug tracking-tight text-ink";
 
