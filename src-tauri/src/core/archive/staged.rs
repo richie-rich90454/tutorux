@@ -111,7 +111,12 @@ pub fn append_staged_asset_records(
         })?;
         let mut updated_manifest = manifest.clone();
         updated_manifest.fields = manifest_fields;
-        updated_manifest.revision = manifest.revision + 1;
+        updated_manifest.revision = manifest.revision.checked_add(1).ok_or_else(|| {
+            CoreError::new(
+                "record_revision_overflow",
+                "This archive manifest revision cannot be advanced.",
+            )
+        })?;
         updated_manifest.previous_offset = previous_offset;
         let manifest_frame = snapshot.encode_record_frame_for_append(&updated_manifest)?;
         staging.append(&manifest_frame)?;
@@ -136,7 +141,12 @@ pub fn append_staged_asset_records(
         for frame in &tree.frames {
             staging.append(frame)?;
         }
-        let generation = snapshot.commit.generation + 1;
+        let generation = snapshot.commit.generation.checked_add(1).ok_or_else(|| {
+            CoreError::new(
+                "archive_generation_overflow",
+                "This archive generation cannot be advanced.",
+            )
+        })?;
         let commit_body = encode_commit_payload(
             generation,
             snapshot.commit.offset,
