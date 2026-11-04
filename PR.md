@@ -5,7 +5,7 @@
 - Branch: `tauri-rewrite`
 - Base: `main` at `7fbbe9e6bc58ef024eb8da5ccae05166fc62936e`
 - Before this final audit update: **2,904 commits**, **1,737 changed paths**, **+508,218 / −115,771** lines.
-- This update adds **51 single-file commits** (one file per commit), including this PR description and the production audit records.
+- This update adds a sequence of **single-file commits** (one file per commit), including this PR description, the code/test fixes, and the production audit records.
 
 ## Summary
 
@@ -139,36 +139,38 @@ All commands were run against the final working tree unless marked otherwise.
 | `node scripts/rust-parity/run.mjs` | PASS — 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm run build` | PASS |
 | `pnpm run build:desktop` | PASS |
+| `pnpm run desktop:build` | PASS — MSI, NSIS and portable EXE rebuilt |
+| `pnpm audit --audit-level high` | PASS — no known vulnerabilities |
+| `pnpm run benchmark:archive` | PASS — 4,622,032 bytes, 679.23 ms append, 174.48 ms list for 10,000 records |
 
 Regression coverage added in this audit includes locator-boundary recovery, ambient console locking, duplicate BLOB aliases, audio placeholder retention, sanitizer malformed input, save recovery-copy retention, deleted-destination identity, FFmpeg naming, provider ports, console recording rejection, unsaved-archive switching, and browser AI error classification.
 
 ## Release artifacts
 
-`release/` contains Windows artifacts from the last packaging run:
+`release/` contains Windows artifacts rebuilt from the audited tree:
 
 - `Tutorux_1.0.0_x64_en-US.msi` — 70,189,056 bytes
-- `Tutorux_1.0.0_x64-setup.exe` — 64,795,348 bytes
-- `Tutorux_1.0.0_x64_portable.exe` — 95,060,480 bytes
-- Portable SHA-256: `50DDE7C56AA2B12D73DB44F2B58928FFAE9C2FD53902C0F59E81C83C92151101`
+- `Tutorux_1.0.0_x64-setup.exe` — 64,784,923 bytes
+- `Tutorux_1.0.0_x64_portable.exe` — 95,105,024 bytes
+- MSI SHA-256: `CB243B1034E9AB68BD5C0411A8C9E0CBB3FD5F7DD80D16AFD4A6D96ECDF94B02`
+- NSIS SHA-256: `A91804747CE89D5A244A497686023ACD5D3D93E15D0829AB703671B8729EFE14`
+- Portable SHA-256: `D32379C63CD03CEBFE082C0F4858E84370AB3410D2792AED1B50B9079E1B80B5`
 
 The embedded Whisper model is `resources/whisper/ggml-base-q5_1.bin`, SHA-256 `422F1AE452ADE6F30A004D7E5C6A43195E4433BC370BF23FAC9CC591F01A8898`.
-
-The installers pre-date the final audit changes and were **not rebuilt** during this update. `pnpm run build:desktop` and the Rust desktop target compile, but packaging/signing remains a separate release step.
 
 ## Known limitations and remaining qualification work
 
 - Real microphone, system-audio, application-capture, and device-matrix behavior was not exercised on physical hardware in this audit; deterministic fakes cover the state machines and native probe logic.
-- macOS and Linux runtime behavior was not executed on this Windows host. Their platform-specific code compiles through shared Rust targets, but runtime qualification remains.
+- macOS and Linux runtime behavior was not executed on this Windows host. Their platform-specific code compiles through shared Rust targets, but runtime qualification remains. Cross-platform installers are produced by CI, not this host.
 - ScreenCaptureKit, PipeWire/ALSA, CoreAudio permissions, DPI, screen-reader review, and signed/notarized installers remain release qualification work.
-- The installer bundle was not rebuilt after the final audit; the checked-in artifacts represent the prior packaging run.
-- Registry CVE auditing and external release publication require network/credentials and were not performed.
-- Security residual: the in-app console intentionally exposes the CLI command surface, and desktop commands are callable by the main renderer. No XSS or remote-script path was found; save/export/authorize commands validate the main window and file boundaries. A fully compromised renderer remains a trust boundary equal to the application process.
-- Performance benchmarks were not rerun after the final audit. Archive operations remain bounded by the established 256 MiB record/material limits; no unbounded parser growth was introduced.
+- Registry CVE auditing beyond `pnpm audit` was not performed because `cargo-audit` is not installed and global tool installation is prohibited.
+- Security residual: the in-app console intentionally exposes the CLI command surface, and desktop commands are callable by the main renderer. No XSS or remote-script path was found; every sensitive command validates the main window and file boundaries. A fully compromised renderer remains a trust boundary equal to the application process.
+- The 2026-11-04 benchmark is a single non-warmed Windows sample: 10,000 records, 4,622,032-byte archive, 679.23 ms append, 174.48 ms list, 152,084,480-byte RSS delta. It is directional, not a cross-platform memory budget.
 - Coverage thresholds are 100% for Vitest logic modules and a ratchet for browser E2E; `.tsx` rendering branches remain behaviorally covered rather than line-covered.
 
 ## Commit structure
 
-Every changed file in this update is committed separately, as requested. The final branch contains the 2,904 migration commits plus 51 single-file audit/PR commits. No release was published, no remote was modified, and no user data or external service was touched.
+Every changed file in this update is committed separately, as requested. The final branch contains the 2,904 migration commits plus the single-file audit/PR commits. No release was published, no remote was modified, and no user data or external service was touched.
 
 ## Review focus
 
