@@ -100,11 +100,11 @@ export const dialogBackdrop =
     "fixed inset-0 z-20 grid place-items-center bg-[rgb(10_16_12_/_43%)] p-5 [animation:fade-in_0.14s_ease-out]";
 
 export const dialogPanel =
-    "relative w-full max-w-[475px] max-h-[92vh] overflow-auto rounded-xl border border-line bg-surface p-6 pb-4 shadow-none [animation:modal-in_0.18s_ease-out]";
+    "relative w-full max-w-[760px] max-h-[94vh] overflow-auto rounded-xl border border-line bg-surface p-7 pb-5 shadow-none [animation:modal-in_0.18s_ease-out]";
 
 export const dialogTitle = "text-xl font-semibold tracking-tight text-ink";
 
-export const dialogDescription = "max-w-[405px] text-xs leading-relaxed text-muted";
+export const dialogDescription = "max-w-[620px] text-xs leading-relaxed text-muted";
 
 export const sectionStack = "grid gap-4";
 
