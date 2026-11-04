@@ -1,63 +1,180 @@
-# PR: Repair desktop saving, move component styling to Tailwind, and ship portable builds
+# PR: Complete the Tutorux Tauri rewrite, Rust CLI parity, and production hardening
+
+## Branch and base
+
+- Branch: `tauri-rewrite`
+- Base: `main` at `7fbbe9e6bc58ef024eb8da5ccae05166fc62936e`
+- Before this final audit update: **2,904 commits**, **1,737 changed paths**, **+508,218 / −115,771** lines.
+- This update adds **51 single-file commits** (one file per commit), including this PR description and the production audit records.
 
 ## Summary
 
-This branch fixes the Windows desktop Save path and makes staged archive/export publication safe against concurrent destination changes. It moves component styling out of the legacy CSS files into Tailwind v4 utilities stored in TSX, improves page and style chunk splitting, stabilizes the recording and transcript workflow, and packages an offline Whisper model in the desktop executable. Windows release collection now includes the MSI, NSIS installer, and a one-file portable executable.
+This branch replaces the retired C++/Slint Tutorux application with a local-first application built from SolidJS, TypeScript, Vite, Tauri 2, and a Rust native core. The same archive engine, domain rules, and UI support both the static browser edition and the Windows/macOS/Linux desktop edition. The branch also ports the command-line surface to Rust, embeds offline Whisper transcription and GGUF inference in the desktop process, completes the recording/transcript/guide/AI workflows, and closes a production audit covering archive integrity, save publication, IPC boundaries, and data-loss paths.
 
-## Changes
+The result is no longer a UI mockup or a partially ported shell. The application opens, edits, verifies, encrypts, repairs, compacts, saves, and reopens `.tux` archives; records and transcribes audio; imports and exports materials and documents; manages students, sessions, journal entries, notes, evidence, and guides; runs AI requests through reviewed native transports; and exposes the same domain capabilities through the standalone CLI and the in-app console.
 
-### Save and file publication
+## Why
 
-- Publish staged desktop archive saves with a same-folder no-replace move on Windows. Other platforms use an atomic no-clobber hard link. Revalidate the destination under the exclusive archive lock before publishing so a changed or newly created external file is preserved.
-- Keep the previous archive in a recovery location until the replacement lock is adopted and the opened archive state is updated. Preserve both the prior archive and staged work if safe publication or recovery fails.
-- Apply the same no-replace publication rule to transcript exports and CLI audio exports.
-- Add Rust regression coverage for existing-file replacement, Save As, concurrent destination creation, stale external edits, and recovery backups. Browser tests cover saving and reopening workspaces.
-- Route every save entry point through the conflict-aware action, including native shortcuts, quick actions, Preferences, and Archive health. Journal autosave now raises the same conflict status when the disk changed and clears it after a successful write.
+The C++/Slint implementation was being retired, but Tutorux needed to retain its product behavior and local-first data guarantees. A browser-first UI alone would lose native file access, capture, offline transcription, and secure credential storage; a native-only rewrite would lose the portable browser edition and shared domain logic. This branch keeps one TypeScript domain/archive implementation, adds a thin platform contract, and places native resources, archive locks, capture, Whisper, and AI transport in Rust.
 
-### Recording and transcription
+## Major changes
 
-- Embed the multilingual Whisper Base Q5_1 model (59,707,625 bytes) in the Rust executable and load it directly from memory. Desktop full-track and live transcription work offline in the MSI, NSIS installer, and portable executable without an external Whisper binary/model or model extraction.
-- Keep transcript cues reviewable and provisional, support cancellation, and process bounded PCM in memory. The desktop Whisper path creates no temporary files or directories. Compressed-audio import may use and remove a flat temporary file when its decoder requires one.
-- Preserve the separate CLI's external Whisper support and document its different temporary-file behavior.
-- Keep recoverable audio callback underruns and device discontinuities from aborting an otherwise active recording; fatal device errors remain reported.
-- Improve the Record workspace flow around choosing a session, capturing or importing audio, recovering takes, playback/waveform review, transcription, and cue export. Fix the recording waveform/control layout and test for horizontal overflow.
+### 1. Migration foundation and application shell
 
-### Tailwind and frontend build
+- Removed the active dependency on the C++/Slint runtime and rebuilt the application around SolidJS, TypeScript, Vite, and Tauri 2.
+- Added strict TypeScript configuration, shared formatting/linting, browser E2E harnesses, and cross-platform CI.
+- Added the shared workspace shell, sidebar navigation, responsive layouts, command palette, native-feeling controls, date picker, media player, and accessibility states.
+- Preserved the Tutorux product identity, icon, local-first behavior, and light/dark appearance system.
 
-- Remove the 27 component CSS files. Their presentation rules now live as Tailwind v4 utility strings in per-component `.tailwind.tsx` modules and are applied from the related TSX through `frontend/tailwind.ts`. The remaining `frontend/styles.css` contains Tailwind setup/theme tokens, font faces, keyframes, print-page settings, and reduced-motion rules only.
-- Preserve the existing palette, typography, component geometry, themes, state selectors, and flat backgrounds; no intentional visual redesign was introduced by the CSS migration. No linear, radial, or conic gradients are used.
-- Keep the compact journal empty state in a separately scoped Tailwind utility map so it does not inherit the taller, centered welcome layout. Add regression coverage for its measured height and alignment.
-- Retain accessible names for navigation controls when their visible text is collapsed on narrow screens. Keep Materials reachable in the phone navigation; exercise every workspace at 1440, 1024, 820, and 390 pixel widths and assert there is no horizontal page overflow.
-- Disable Windows WebView2 general address/contact autofill suggestions so stored browser form data does not overlay app inputs. The app uses its normal Tauri/WebView2 runtime and does not spoof another browser's user agent.
-- Keep the default 500 kB JavaScript chunk warning. Rolldown splits route utilities, entry code, and vendor modules; route pages and PDF/cryptography features remain lazy-loaded. The current largest JavaScript chunk is 431.01 kB, below the warning threshold.
-- Keep generated source maps disabled for the Tailwind build output, avoiding broken-map warnings and reducing packaged output.
+### 2. Shared `.tux` archive engine
 
-### Rust, packaging, and documentation
+- Implemented the complete v1 archive format in TypeScript: header, record frames, checksums, LZ4 payloads, index pages, commit roots, locators, and immutable generations.
+- Added bounded byte sources, browser/memory/composite/desktop sources, streaming reads, and range validation.
+- Implemented create, open, append, save, verify, history verification, repair, recovery, tail discard, compaction, backfill, rebuild, encryption, passphrase rotation, lock/unlock, sanitize, backup, and trash purge.
+- Added corruption detection, overlapping-frame rejection, manifest/hash validation, citation validation, credential-placement checks, and recovery of complete unpublished generations.
+- Added the Rust core implementation of the same archive and domain rules, used by the CLI and desktop host.
 
-- Restrict `run_command_console` to crate visibility so its private desktop state type is not exposed through a public function.
-- Clean up Clippy findings across the Rust targets, including a dead loop, redundant branches, checked division, duplicate map lookups, and overly complex return signatures. Keep intentional command/worker argument boundaries explicit with narrow, reasoned lint expectations.
-- Scope the Windows linker-status lint allowance to the unit-test crate so it does not create an unused-attribute warning in regular library builds.
-- Collect Windows MSI, NSIS, and portable outputs together. The portable EXE embeds the frontend, native host, and Whisper model; it does not need companion application files or extract a runtime/model directory. Windows still needs the system WebView2 runtime, and the app may create per-user application state.
-- Update architecture, TypeScript development, privacy, release, and `PR.md` documentation to describe the actual TSX Tailwind structure, save behavior, WebView2 autofill setting, bundled model, runtime requirements, and release artifacts.
+### 3. Domain and workflow parity
+
+- Students, sessions, session lifecycle, cloning, archive visibility, session packages, notes, journal entries, organizers, collections, tags, and Trash/restore.
+- Transcript import (text/SRT/VTT), correction, timestamps, speakers, split/merge, history, verification, search, export, and material links.
+- Materials import, preview, export, hashing, waveform previews, placement, alias filtering, and Trash/restore.
+- Evidence extraction, review, approval/rejection, graph edges, source links, and Trash/restore.
+- Study guide templates, generation, editing, regeneration, section/block operations, versions, approvals, exports, and source validation.
+- Student progress reviews and version history.
+- AI package preparation, context selection, attachments, request confirmation, response import, provider configuration, credential policy, and job history.
+
+### 4. Rust CLI and capability parity
+
+- Added the standalone `tutorux-cli` binary and the in-app console, both using one Rust command router.
+- Registered **218 capabilities** across archive, AI, annotations, assets, benchmarks, diagnostics, evidence, guides, journal, models, recordings, sessions, settings, students, templates, and transcripts.
+- Added generation-guarded writes, transactional archive replacement, exclusive/shared archive locks, stale-image detection, passphrase safety gates, confirmation gates for destructive operations, and bounded cancellation checks.
+- Added 47 golden contract cases covering **218/218 capabilities**, with 215 exercised by the corpus and 3 by cited Rust integration tests.
+- Kept feature parity invariant: no CLI-only or GUI-only core capability.
+
+### 5. Desktop host and Tauri integration
+
+- Implemented authorized archive range reads, staged save publication, atomic no-replace moves, recovery copies, destination identity checks, native menus, single-instance `.tux` launch routing, and native export writes.
+- Added native dialog/fs/single-instance plugins with least-privilege capability configuration and a Content Security Policy.
+- Added main-window checks, path/extension validation, save-kind validation, startup/system-directory blocking, and credential boundaries.
+- Added Windows WebView2 compatibility settings, high-DPI-safe layout, and true GUI-subsystem release binaries.
+- Added encrypted archive reauthorization, save-conflict recovery, and protection against external in-place modifications.
+
+### 6. Recording, capture, and transcription
+
+- Added microphone, system-audio, and application capture for the desktop host, including WASAPI, CoreAudio, and Linux capture paths where supported.
+- Added synchronized multi-track capture with native sample rates, channel counts, sample formats, gaps, discontinuities, pause/resume, checkpoints, and recovery.
+- Added WAV import/recovery, streaming WAV/RF64 export, audio mixing, waveform indexing, and bounded preview/playback windows.
+- Embedded the multilingual Whisper Base Q5_1 model in the desktop executable and added offline full-track and live transcription without extracting a model or requiring a Node runtime.
+- Added provisional cue review, cancellation, incremental commits, cue refinement, and transcript editing.
+
+### 7. AI providers and local inference
+
+- Added reviewed native transports for OpenAI, Anthropic, Google Gemini, Cohere, Perplexity, Replicate, xAI, OpenRouter, Together, Fireworks, DeepInfra, Novita, Nebius, Groq, Cerebras, SambaNova, NVIDIA, DeepSeek, Mistral, Hugging Face, Moonshot, Z.AI, MiniMax, SiliconFlow, Alibaba Cloud, Baidu, Tencent Cloud, Volcengine, Bedrock, Azure OpenAI, Cloudflare Workers AI, AI21, OpenCode Zen, and OpenAI-compatible endpoints.
+- Added fixed-host validation, loopback-only local endpoints, redirects disabled, bounded request/response sizes, request hashing and explicit outbound confirmation, and credential zeroization.
+- Added Replicate prediction polling/cancellation, OpenAI-compatible streaming, Ollama model discovery, and external AI response import.
+- Added in-process GGUF inspection and inference through `llama-cpp-2`, linked with the vendored whisper.cpp symbol namespace.
+
+### 8. Documents, exports, and portability
+
+- Added DOCX/PDF text extraction, DOCX export, PDF export with embedded images, HTML/Markdown/JSON exports, and transcript subtitle/text exports.
+- Added browser downloads, File System Access API saves, desktop staged exports, and safe overwrite/recovery behavior.
+- Added browser-static and Tauri desktop builds from the same source, with lazy route/vendor splitting and generated asset handling.
+- Added portable `.tux` files, session packages, encrypted archives, and sanitized copies.
+
+### 9. UI system, accessibility, and responsive behavior
+
+- Moved component styling to Tailwind v4 utilities declared beside the components; removed the retired component CSS files.
+- Added keyboard navigation, focus scoping, modal guardrails, accessible names, reduced-motion handling, screen-reader labels, date-picker semantics, and responsive layouts from phone to desktop widths.
+- Added browser/desktop parity for navigation, dialogs, forms, transcript review, materials, guides, AI, archive health, settings, and Trash.
+- Added visual regression/behavioral E2E coverage for width overflow, block action fit, empty states, dialogs, and primary-action inventories.
+
+### 10. Production audit and reliability fixes
+
+The 2026-11-04 audit is recorded in `docs/engineering/production-audit/`. It produced **26 confirmed findings**, all corrected:
+
+- Archive recovery now finds locators straddling scan boundaries, so a crash tail cannot make the newest committed generation disappear.
+- Compaction and encryption accept duplicate content-hash aliases used by audio placeholder manifests.
+- Pruning retains placeholder blobs referenced by audio tracks and takes.
+- Sanitized-copy guide parsing rejects oversized counts and cannot panic on a multibyte character boundary.
+- The in-app console reuses the desktop archive lease instead of failing every write with `archive_locked`.
+- Failed saves preserve the only recovery copy instead of deleting it.
+- Deleted destinations and stale authorization tokens no longer block Save As or create false external-change conflicts.
+- Crafted generation/revision values cannot overflow into panics or silently skip a commit.
+- CLI writes revalidate the loaded archive image, so same-size in-place external changes are not silently overwritten.
+- Fixed AI provider hosts reject non-default ports; custom OpenAI-compatible endpoints cannot use another provider's keychain key.
+- The desktop CSP permits local Ollama discovery while preserving the strict remote-host allowlist.
+- Save/export commands require the main window, restrict export file types, and reject system/startup destinations; FFmpeg must be named `ffmpeg`.
+- Opening or creating another archive is refused while work is unsaved, a guide editor is open, or a dialog is open; accepted switches clear transient dialogs.
+- Background recording/transcription checkpoints no longer close unrelated forms.
+- Save completion cannot replace a newer workspace snapshot and mark newer work clean.
+- “Save a copy” now performs Save As instead of overwriting the current archive.
+- Locking an encrypted archive removes all record-derived state, including settings and AI jobs.
+- Editing text alone keeps an untimestamped transcript cue untimestamped.
+- Sanitized-copy selections survive snapshot updates and are pruned only when records disappear.
+- Session-package cleanup cannot leave the UI permanently busy.
+- AI response import preserves the detected template when “Auto” is selected.
+- Browser AI errors distinguish timeout, offline, and CORS failures.
+- The native recovery button is reactively disabled during browser capture.
+- Console recording no longer launches the GUI instead of a worker; users are directed to the Record workspace.
+- The pending single-instance launch queue is bounded.
+- Asset verification enforces the 256 MiB material cap and duplicate BLOB aliases; the remaining memory ceiling is documented.
 
 ## Verification
 
-- `pnpm lint` — passed with no ESLint warnings or errors.
-- `pnpm typecheck` — passed.
-- `pnpm format:check` — passed.
-- `pnpm test` — passed: 40 files and 246 tests.
-- `pnpm test:e2e` — passed: all 15 browser end-to-end tests, including the compact journal empty state, responsive workspace navigation, save/reopen, recording playback and take management, encrypted archives, workspace flows, and guide print preview.
-- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings` — passed with warnings denied.
-- `cargo test --locked --lib -- --test-threads=1` — passed: 187 tests, including archive save publication and embedded Whisper model initialization/transcription. On Windows, run with permission to create/move temporary files and bind loopback test servers.
-- `pnpm build` — passed with no Babel deoptimization or JavaScript chunk-size warning. The largest JavaScript chunk was the 431.01 kB PDF vendor chunk (129.98 kB gzip).
-- `pnpm desktop:build` — passed on Windows for this tree and collected both installers and the portable EXE. The Rust release build emitted no source warnings.
+All commands were run against the final working tree unless marked otherwise.
 
-## Windows release artifacts
+| Command | Result |
+| --- | --- |
+| `pnpm run typecheck` | PASS |
+| `pnpm run lint` | PASS |
+| `pnpm run format:check` | PASS |
+| `pnpm run test:coverage` | PASS — **100% statements, branches, functions, lines**; 111 files, 2,130 tests |
+| `pnpm exec playwright test --workers=2` | PASS — 35 tests, headless Chromium |
+| `node scripts/e2e-coverage.mjs --check` | PASS — 48.57% statements / 35.13% branches / 58.79% functions / 48.80% lines |
+| `cargo fmt --check` | PASS |
+| `cargo clippy --locked --offline --all-targets --all-features -D warnings` | PASS |
+| `cargo check --locked --offline --all-features --bins` | PASS |
+| `cargo test --locked --offline --all-features` | PASS — 234 library tests + 8 audio-helper tests |
+| `node scripts/rust-parity/run.mjs` | PASS — 47/47 cases, 218 capabilities, 0 missing |
+| `pnpm run build` | PASS |
+| `pnpm run build:desktop` | PASS |
 
-`release/` contains:
+Regression coverage added in this audit includes locator-boundary recovery, ambient console locking, duplicate BLOB aliases, audio placeholder retention, sanitizer malformed input, save recovery-copy retention, deleted-destination identity, FFmpeg naming, provider ports, console recording rejection, unsaved-archive switching, and browser AI error classification.
 
-- `Tutorux_1.0.0_x64_en-US.msi` — Windows Installer package (70,483,968 bytes).
-- `Tutorux_1.0.0_x64-setup.exe` — NSIS installer (65,110,709 bytes).
-- `Tutorux_1.0.0_x64_portable.exe` — one-file portable desktop executable (95,210,496 bytes), copied from the release application binary.
+## Release artifacts
 
-The portable EXE and `src-tauri/target/release/tutorux-desktop.exe` have the same SHA-256 (`F8E68FC12908B294E57F599E3ECCCB5E340F0163A6620C450987C120EBE8568C`), confirming that the portable artifact is the application binary itself. The embedded Whisper model is 59,707,625 bytes with SHA-256 `422F1AE452ADE6F30A004D7E5C6A43195E4433BC370BF23FAC9CC591F01A8898`; its source and license attribution are recorded in `resources/whisper/README.md`. GGUF models and FFmpeg remain optional user-provided resources and are not required for desktop Whisper transcription.
+`release/` contains Windows artifacts from the last packaging run:
+
+- `Tutorux_1.0.0_x64_en-US.msi` — 70,189,056 bytes
+- `Tutorux_1.0.0_x64-setup.exe` — 64,795,348 bytes
+- `Tutorux_1.0.0_x64_portable.exe` — 95,060,480 bytes
+- Portable SHA-256: `50DDE7C56AA2B12D73DB44F2B58928FFAE9C2FD53902C0F59E81C83C92151101`
+
+The embedded Whisper model is `resources/whisper/ggml-base-q5_1.bin`, SHA-256 `422F1AE452ADE6F30A004D7E5C6A43195E4433BC370BF23FAC9CC591F01A8898`.
+
+The installers pre-date the final audit changes and were **not rebuilt** during this update. `pnpm run build:desktop` and the Rust desktop target compile, but packaging/signing remains a separate release step.
+
+## Known limitations and remaining qualification work
+
+- Real microphone, system-audio, application-capture, and device-matrix behavior was not exercised on physical hardware in this audit; deterministic fakes cover the state machines and native probe logic.
+- macOS and Linux runtime behavior was not executed on this Windows host. Their platform-specific code compiles through shared Rust targets, but runtime qualification remains.
+- ScreenCaptureKit, PipeWire/ALSA, CoreAudio permissions, DPI, screen-reader review, and signed/notarized installers remain release qualification work.
+- The installer bundle was not rebuilt after the final audit; the checked-in artifacts represent the prior packaging run.
+- Registry CVE auditing and external release publication require network/credentials and were not performed.
+- Security residual: the in-app console intentionally exposes the CLI command surface, and desktop commands are callable by the main renderer. No XSS or remote-script path was found; save/export/authorize commands validate the main window and file boundaries. A fully compromised renderer remains a trust boundary equal to the application process.
+- Performance benchmarks were not rerun after the final audit. Archive operations remain bounded by the established 256 MiB record/material limits; no unbounded parser growth was introduced.
+- Coverage thresholds are 100% for Vitest logic modules and a ratchet for browser E2E; `.tsx` rendering branches remain behaviorally covered rather than line-covered.
+
+## Commit structure
+
+Every changed file in this update is committed separately, as requested. The final branch contains the 2,904 migration commits plus 51 single-file audit/PR commits. No release was published, no remote was modified, and no user data or external service was touched.
+
+## Review focus
+
+1. Archive recovery and compaction semantics (`src-tauri/src/core/archive/open.rs`, `commit.rs`, `maintenance/*`).
+2. Save publication and lock reentrancy (`desktop/save.rs`, `desktop/archive.rs`, `archive_lock_support.rs`, `console/session.rs`).
+3. Archive-switch/save/dialog state transitions (`frontend/main.tsx`).
+4. Desktop IPC and path boundaries (`desktop/*`, `audio_import.rs`, `tauri.conf.json`).
+5. AI host/endpoint and credential rules (`ai_transport/validation.rs`, `core/cli/misc/ai/archive.rs`).
+6. Sanitized-copy privacy behavior (`frontend/SanitizedCopy.tsx`).
