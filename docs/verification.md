@@ -72,7 +72,7 @@ Representative removals:
 
 ## Unverified environment
 
-- macOS and Linux CI jobs were not run locally; only Windows artifacts were built.
+- macOS and Linux runtime was not exercised locally; Windows installers were rebuilt locally and cross-platform packaging remains a CI responsibility.
 - Real microphone, system-audio capture, and Whisper hardware were not exercised; the suites use deterministic browser/device fakes.
 - Signing and notarization still require repository secrets; tagged releases fail fast without them.
 - `.tsx` rendering branches are covered behaviorally by E2E, not by line coverage.
