@@ -619,6 +619,23 @@ describe("browser AI transport", () => {
         await expect(platform.sendAiRequest(request, () => {})).rejects.toThrow(/browser CORS/u);
     });
 
+    it("reports an aborted provider request as a timeout", async () => {
+        stubFetch(async () => {
+            const error = new Error("aborted");
+            error.name = "AbortError";
+            throw error;
+        });
+        await expect(platform.sendAiRequest(request, () => {})).rejects.toThrow(/timed out/u);
+    });
+
+    it("reports an offline device separately from a CORS failure", async () => {
+        vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+        stubFetch(async () => {
+            throw new Error("network down");
+        });
+        await expect(platform.sendAiRequest(request, () => {})).rejects.toThrow(/offline/u);
+    });
+
     it("streams response chunks", async () => {
         stubFetch(
             async () =>
