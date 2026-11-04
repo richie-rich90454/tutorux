@@ -86,9 +86,13 @@ pub(super) fn reject_foreground_recording(arguments: &[String]) -> Result<(), St
         && arguments
             .get(command_index + 1)
             .is_some_and(|argument| argument == "start")
-        && !arguments.iter().any(|argument| argument == "--detach")
     {
-        return Err("Run foreground recording from the CLI, or add --detach so the recording worker remains controllable outside this window.".to_owned());
+        // A detached worker launched from the desktop executable would reopen the GUI
+        // instead of running the CLI, so recording must start from the Record screen.
+        return Err(
+            "Start recording from the Record workspace. The in-app console cannot run a capture worker."
+                .to_owned(),
+        );
     }
     Ok(())
 }
@@ -165,10 +169,17 @@ pub(super) fn supports_new_passphrase(arguments: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_archive_discovery, parse_command_line, replace_passphrase_env_option,
-        supports_new_passphrase,
+        is_archive_discovery, parse_command_line, reject_foreground_recording,
+        replace_passphrase_env_option, supports_new_passphrase,
     };
 
+    #[test]
+    fn console_recording_start_is_rejected_even_with_detach() {
+        let arguments = parse_command_line("record start --detach --session abc").unwrap();
+        assert!(reject_foreground_recording(&arguments).is_err());
+        let arguments = parse_command_line("record status").unwrap();
+        assert!(reject_foreground_recording(&arguments).is_ok());
+    }
     #[test]
     fn command_line_splits_quotes_and_strips_the_tutorux_prefix() {
         let arguments =
