@@ -231,6 +231,7 @@ interface GuidePageProps {
     onTrashTemplate: (record: ArchiveRecord) => void;
     onRestoreTemplate: (record: ArchiveRecord) => void;
     onExportTemplate: (template: GuideTemplate) => void;
+    onEditingChange?: (editing: boolean) => void;
 }
 
 export function GuidesPage(props: GuidePageProps): JSX.Element {
@@ -259,6 +260,10 @@ export function GuidesPage(props: GuidePageProps): JSX.Element {
     const [previewTemplateId, setPreviewTemplateId] = createSignal("");
     const [armedTemplateDeleteId, setArmedTemplateDeleteId] = createSignal("");
     const [overrideRecords, setOverrideRecords] = createSignal<ArchiveRecord[]>([]);
+    createEffect(() => {
+        props.onEditingChange?.(Boolean(editor() || generation() || templateEditor()));
+    });
+    onCleanup(() => props.onEditingChange?.(false));
     createEffect(() => {
         const snapshot = props.snapshot;
         let active = true;
