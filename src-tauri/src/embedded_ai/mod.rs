@@ -116,10 +116,12 @@ pub(crate) struct EmbeddedModelLoadRequest {
 
 #[tauri::command]
 pub(crate) fn authorize_embedded_model(
+    window: tauri::WebviewWindow,
     path: String,
     allow_memory_overcommit: Option<bool>,
     state: State<'_, EmbeddedAiState>,
 ) -> Result<EmbeddedModelInfo, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     let selected = validate_selected_path(Path::new(&path))?;
     let identity = file_identity(&selected)?;
     let (architecture, name, tensor_count) = inspect_gguf(&selected)?;
@@ -161,9 +163,11 @@ pub(crate) fn authorize_embedded_model(
 
 #[tauri::command]
 pub(crate) async fn load_embedded_model(
+    window: tauri::WebviewWindow,
     request: EmbeddedModelLoadRequest,
     state: State<'_, EmbeddedAiState>,
 ) -> Result<EmbeddedModelStatus, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     validate_context_and_threads(request.context_tokens, request.cpu_threads)?;
     if !state
         .active_generations
@@ -235,8 +239,10 @@ pub(crate) async fn load_embedded_model(
 
 #[tauri::command]
 pub(crate) fn unload_embedded_model(
+    window: tauri::WebviewWindow,
     state: State<'_, EmbeddedAiState>,
 ) -> Result<EmbeddedModelStatus, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     if !state
         .active_generations
         .lock()
@@ -260,8 +266,10 @@ pub(crate) fn unload_embedded_model(
 
 #[tauri::command]
 pub(crate) fn embedded_model_status(
+    window: tauri::WebviewWindow,
     state: State<'_, EmbeddedAiState>,
 ) -> Result<EmbeddedModelStatus, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     state
         .status
         .lock()
@@ -271,9 +279,11 @@ pub(crate) fn embedded_model_status(
 
 #[tauri::command]
 pub(crate) fn cancel_embedded_generation(
+    window: tauri::WebviewWindow,
     request_id: String,
     state: State<'_, EmbeddedAiState>,
 ) -> Result<bool, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     let active = state
         .active_generations
         .lock()
@@ -288,10 +298,12 @@ pub(crate) fn cancel_embedded_generation(
 
 #[tauri::command]
 pub(crate) async fn generate_embedded_text(
+    window: tauri::WebviewWindow,
     request: EmbeddedGenerationRequest,
     on_chunk: Channel<EmbeddedGenerationChunk>,
     state: State<'_, EmbeddedAiState>,
 ) -> Result<EmbeddedGenerationResult, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     validate_generation_request(&request)?;
     let request_id = Uuid::parse_str(&request.request_id)
         .map_err(|_| "The local generation request ID is invalid.".to_owned())?
