@@ -118,7 +118,12 @@ pub fn backfill_archive_secondary_indexes(snapshot: &ArchiveSnapshot) -> Result<
     if versions_changed {
         let mut updated = manifest.clone();
         updated.fields = manifest_fields;
-        updated.revision = manifest.revision + 1;
+        updated.revision = manifest.revision.checked_add(1).ok_or_else(|| {
+            crate::core::error::CoreError::new(
+                "record_revision_overflow",
+                "This archive manifest revision cannot be advanced.",
+            )
+        })?;
         updated.previous_offset = manifest_offset;
         let frame = encode_record_for_write(&snapshot.header, snapshot.data_key(), &updated)?;
         tail.extend_from_slice(&frame);
@@ -143,7 +148,12 @@ pub fn backfill_archive_secondary_indexes(snapshot: &ArchiveSnapshot) -> Result<
     for frame in &tree.frames {
         tail.extend_from_slice(frame);
     }
-    let generation = snapshot.commit.generation + 1;
+    let generation = snapshot.commit.generation.checked_add(1).ok_or_else(|| {
+        CoreError::new(
+            "archive_generation_overflow",
+            "This archive generation cannot be advanced.",
+        )
+    })?;
     let commit_body = encode_commit_payload(
         generation,
         snapshot.commit.offset,
