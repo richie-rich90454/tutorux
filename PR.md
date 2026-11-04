@@ -67,6 +67,7 @@ The C++/Slint implementation was being retired, but Tutorux needed to retain its
 - Added WAV import/recovery, streaming WAV/RF64 export, audio mixing, waveform indexing, and bounded preview/playback windows.
 - Embedded the multilingual Whisper Base Q5_1 model in the desktop executable and added offline full-track and live transcription without extracting a model or requiring a Node runtime.
 - Added provisional cue review, cancellation, incremental commits, cue refinement, and transcript editing.
+- Added synchronized transcript playback: loading a cue highlights the active cue and keeps `aria-current` aligned with the selected recording, and the desktop/multi-track path supports selecting among multiple recordings in one session.
 
 ### 7. AI providers and local inference
 
@@ -130,12 +131,12 @@ All commands were run against the final working tree unless marked otherwise.
 | `pnpm run lint` | PASS |
 | `pnpm run format:check` | PASS |
 | `pnpm run test:coverage` | PASS — **100% statements, branches, functions, lines**; 111 files, 2,130 tests |
-| `pnpm exec playwright test --workers=2` | PASS — 35 tests, headless Chromium |
-| `node scripts/e2e-coverage.mjs --check` | PASS — 48.57% statements / 35.13% branches / 58.79% functions / 48.80% lines |
+| `pnpm exec playwright test --workers=2` | PASS — 36 tests, headless Chromium |
+| `node scripts/e2e-coverage.mjs --check` | PASS — 48.67% statements / 35.19% branches / 58.92% functions / 48.89% lines |
 | `cargo fmt --check` | PASS |
 | `cargo clippy --locked --offline --all-targets --all-features -D warnings` | PASS |
 | `cargo check --locked --offline --all-features --bins` | PASS |
-| `cargo test --locked --offline --all-features` | PASS — 234 library tests + 8 audio-helper tests |
+| `cargo test --locked --offline --all-features` | PASS — 245 library tests + 8 audio-helper tests |
 | `node scripts/rust-parity/run.mjs` | PASS — 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm run build` | PASS |
 | `pnpm run build:desktop` | PASS |
@@ -143,7 +144,7 @@ All commands were run against the final working tree unless marked otherwise.
 | `pnpm audit --audit-level high` | PASS — no known vulnerabilities |
 | `pnpm run benchmark:archive` | PASS — 4,622,032 bytes, 679.23 ms append, 174.48 ms list for 10,000 records |
 
-Regression coverage added in this audit includes locator-boundary recovery, ambient console locking, duplicate BLOB aliases, audio placeholder retention, sanitizer malformed input, save recovery-copy retention, deleted-destination identity, FFmpeg naming, provider ports, console recording rejection, unsaved-archive switching, and browser AI error classification.
+Regression coverage added in this audit includes locator-boundary recovery, ambient console locking, duplicate BLOB aliases, audio placeholder retention, sanitizer malformed input, save recovery-copy retention, deleted-destination identity, FFmpeg naming, provider ports, console recording rejection, unsaved-archive switching, browser AI error classification, multi-track playback selection, synchronized transcript highlighting, and playback timeline validation.
 
 ## Release artifacts
 
@@ -166,7 +167,8 @@ The embedded Whisper model is `resources/whisper/ggml-base-q5_1.bin`, SHA-256 `4
 - JavaScript dependency audit is clean. The OSV scan of 623 locked Rust packages found seven transitive advisories; `DEPENDENCY_AUDIT.md` records their target scope and mitigation. The Linux GTK/D-Bus advisories and the `ringbuf` fix require upstream dependency updates that are not available offline on this host.
 - Security residual: the in-app console intentionally exposes the CLI command surface, and desktop commands are callable by the main renderer. No XSS or remote-script path was found; every sensitive command validates the main window and file boundaries. A fully compromised renderer remains a trust boundary equal to the application process.
 - The 2026-11-04 benchmark is a single non-warmed Windows sample: 10,000 records, 4,622,032-byte archive, 679.23 ms append, 174.48 ms list, 152,084,480-byte RSS delta. It is directional, not a cross-platform memory budget.
-- Coverage thresholds are 100% for Vitest logic modules and a ratchet for browser E2E; `.tsx` rendering branches remain behaviorally covered rather than line-covered.
+- Rust line coverage is instrumented at 59.83% across the full native target (245 library tests + 8 helper tests + 47 CLI contract cases). The remaining lines are desktop Tauri host/webview code, native capture backends, detached FFmpeg workers, and live-model sessions that cannot execute under the no-window/no-hardware rules. `RUST-COVERAGE.md` records the exact uncovered categories.
+- JavaScript/TypeScript logic thresholds remain 100%, and browser E2E remains a ratchet; `.tsx` rendering branches are behaviorally covered rather than line-covered.
 
 ## Commit structure
 
