@@ -90,7 +90,7 @@ pub async fn send(request: HeadlessAiRequest) -> Result<HeadlessAiResponse, Stri
         }
         Ok(())
     });
-    let result = super::send_ai_request(inner, channel).await?;
+    let result = super::send_ai_request_core(inner, channel).await?;
     let AiTransportResult {
         status,
         content_type,
