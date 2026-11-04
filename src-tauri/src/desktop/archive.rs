@@ -14,11 +14,20 @@ use uuid::Uuid;
 
 const MAX_RANGE_BYTES: usize = 4 * 1024 * 1024;
 
+fn ensure_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("Archive access is only available from the main window.".to_owned());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) async fn authorize_archive_path(
+    window: tauri::WebviewWindow,
     path: String,
     app: AppHandle,
 ) -> Result<ArchiveSelection, String> {
+    ensure_main_window(&window)?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DesktopState>();
         authorize_archive_path_blocking(&path, &state)
@@ -93,9 +102,11 @@ pub(crate) fn authorize_archive_path_blocking(
 
 #[tauri::command]
 pub(crate) fn close_archive(
+    window: tauri::WebviewWindow,
     archive_token: String,
     state: State<'_, DesktopState>,
 ) -> Result<(), String> {
+    ensure_main_window(&window)?;
     state
         .opened_archives
         .lock()
@@ -106,11 +117,13 @@ pub(crate) fn close_archive(
 
 #[tauri::command]
 pub(crate) fn read_archive_range(
+    window: tauri::WebviewWindow,
     archive_token: String,
     offset: String,
     length: usize,
     state: State<'_, DesktopState>,
 ) -> Result<Response, String> {
+    ensure_main_window(&window)?;
     if length > MAX_RANGE_BYTES {
         return Err("Archive reads are limited to 4 MiB per request.".to_owned());
     }
