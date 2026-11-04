@@ -93,3 +93,58 @@ impl ArchiveSnapshot {
         Ok(chunks)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::archive::{create_archive_bytes, new_uuid};
+
+    fn chunk(session: &str, track: &str, sequence: u64, deleted: bool) -> ArchiveRecord {
+        let mut fields = vec![
+            ("session_id".to_owned(), session.to_owned()),
+            ("track_id".to_owned(), track.to_owned()),
+            ("sequence_number".to_owned(), sequence.to_string()),
+        ];
+        if deleted {
+            fields.push(("_deleted".to_owned(), "true".to_owned()));
+        }
+        ArchiveRecord::new(RecordType::AUDIO_CHUNK, new_uuid(), fields)
+    }
+
+    #[test]
+    fn lists_only_the_requested_track_in_sequence_order() {
+        let session = new_uuid();
+        let track_a = new_uuid();
+        let track_b = new_uuid();
+        let snapshot =
+            ArchiveSnapshot::open_bytes(create_archive_bytes("Audio", "", 1).unwrap()).unwrap();
+        let snapshot = snapshot
+            .append_records(&[
+                chunk(&session, &track_a, 1, false),
+                chunk(&session, &track_b, 0, false),
+                chunk(&session, &track_a, 0, false),
+                chunk(&session, &track_a, 2, true),
+            ])
+            .unwrap();
+        let chunks = snapshot
+            .list_audio_chunk_metadata(&session, &track_a, false)
+            .unwrap();
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].field("sequence_number"), Some("0"));
+        assert_eq!(chunks[1].field("sequence_number"), Some("1"));
+        let with_deleted = snapshot
+            .list_audio_chunk_metadata(&session, &track_a, true)
+            .unwrap();
+        assert_eq!(with_deleted.len(), 3);
+    }
+
+    #[test]
+    fn rejects_invalid_chunk_identity() {
+        let snapshot =
+            ArchiveSnapshot::open_bytes(create_archive_bytes("Audio", "", 1).unwrap()).unwrap();
+        let error = snapshot
+            .list_audio_chunk_metadata("not-a-uuid", "also-not-a-uuid", false)
+            .unwrap_err();
+        assert_eq!(error.code, "audio_chunk_identity_invalid");
+    }
+}
