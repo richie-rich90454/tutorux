@@ -52,9 +52,13 @@ struct WavFormat {
 
 #[tauri::command]
 pub async fn import_compressed_audio(
+    window: tauri::WebviewWindow,
     path: String,
     ffmpeg_path: Option<String>,
 ) -> Result<ImportedCompressedAudio, String> {
+    if window.label() != "main" {
+        return Err("Compressed audio import is only available from the main window.".to_owned());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         import_compressed_audio_blocking(&path, ffmpeg_path)
     })
@@ -92,6 +96,9 @@ fn import_compressed_audio_blocking(
                 .filter(|value| !value.is_empty())
         })
         .unwrap_or_else(|| "ffmpeg".to_owned());
+    if !is_ffmpeg_executable(&executable) {
+        return Err("The configured FFmpeg executable must be named ffmpeg.".to_owned());
+    }
     let mut process = start_ffmpeg(&executable, &source)?;
     let stdout = process
         .0
@@ -151,6 +158,13 @@ fn import_compressed_audio_blocking(
         duration_us: duration_us.to_string(),
         chunks,
     })
+}
+
+fn is_ffmpeg_executable(executable: &str) -> bool {
+    Path::new(executable)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("ffmpeg"))
 }
 
 fn start_ffmpeg(executable: &str, source: &Path) -> Result<FfmpegProcess, String> {
@@ -432,6 +446,15 @@ mod tests {
                 let _ = read_decoded_audio(&mut Cursor::new(&mut mutated));
             }
         }
+    }
+
+    #[test]
+    fn only_an_ffmpeg_named_executable_is_accepted() {
+        assert!(is_ffmpeg_executable("ffmpeg"));
+        assert!(is_ffmpeg_executable("C:\\tools\\ffmpeg.exe"));
+        assert!(is_ffmpeg_executable("/usr/local/bin/FFmpeg"));
+        assert!(!is_ffmpeg_executable("C:\\Temp\\payload.exe"));
+        assert!(!is_ffmpeg_executable("ffmpeg-wrapper"));
     }
 
     #[test]
