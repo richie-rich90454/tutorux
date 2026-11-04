@@ -18,8 +18,10 @@ Environment: Windows 11, Node 24, pnpm 12, Rust stable 1.97, Tauri 2. All browse
 | `node scripts/rust-parity/run.mjs` | PASS | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm run build` | PASS | web build |
 | `pnpm run build:desktop` | PASS | desktop Vite build |
-| `pnpm run desktop:build` | NOT RERUN | Installer packaging not rebuilt in this audit; configuration was inspected and the desktop code compiles |
-| `cargo audit` / `pnpm audit` | NOT RUN | Would require network/registry access; lockfiles were not modified |
+| `pnpm run desktop:build` | PASS | MSI, NSIS and portable EXE rebuilt on Windows |
+| `pnpm audit --audit-level high` | PASS | no known vulnerabilities |
+| `pnpm run benchmark:archive` | PASS | 10,000 records: 4,622,032 bytes, 679.23 ms append, 174.48 ms list |
+| `cargo audit` | NOT RUN | `cargo-audit` is not installed; installing global Rust tools is prohibited |
 
 ## Failures observed and resolved during the audit
 
