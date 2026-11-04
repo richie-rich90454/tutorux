@@ -219,7 +219,7 @@ pub(crate) fn validate_guide_semantics(
     issues
 }
 
-fn parse_bounded_count(
+pub(crate) fn parse_bounded_count(
     record: &ArchiveRecord,
     name: &str,
     label: &str,
