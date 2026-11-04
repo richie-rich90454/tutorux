@@ -295,7 +295,11 @@ export const platform: ArchivePlatform = {
             headers.set("anthropic-version", "2023-06-01");
         }
         const timeout = new AbortController();
-        const timeoutId = window.setTimeout(() => timeout.abort(), 600_000);
+        let timedOut = false;
+        const timeoutId = window.setTimeout(() => {
+            timedOut = true;
+            timeout.abort();
+        }, 600_000);
         let response: Response;
         try {
             response = await fetch(request.endpoint, {
@@ -308,10 +312,22 @@ export const platform: ArchivePlatform = {
                 referrerPolicy: "no-referrer",
                 signal: timeout.signal,
             });
-        } catch {
+        } catch (error) {
             window.clearTimeout(timeoutId);
+            const aborted = error instanceof Error && error.name === "AbortError";
+            if (timedOut && aborted) {
+                throw new Error("The provider request timed out after 10 minutes.", {
+                    cause: error,
+                });
+            }
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
+                throw new Error("This device appears to be offline. Reconnect and try again.", {
+                    cause: error,
+                });
+            }
             throw new Error(
                 "The provider request could not be completed. Check the endpoint and browser CORS settings, then try the desktop app.",
+                { cause: error },
             );
         }
         window.clearTimeout(timeoutId);
