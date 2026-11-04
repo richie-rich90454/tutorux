@@ -6887,9 +6887,6 @@ function FormDialog(props: {
                 >
                     <Icon name="close" />
                 </button>
-                <span class="dialog-icon bg-accent-soft rounded-[5px] border border-accent/15 text-accent grid h-9.5 mb-4 place-items-center w-9.5">
-                    <Icon name={content().icon} />
-                </span>
                 <span class={cn(eyebrow, "eyebrow")}>{content().eyebrow}</span>
                 <h2 id="form-dialog-title" class="">
                     {content().title}
