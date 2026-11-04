@@ -42,3 +42,13 @@ pub(super) fn application_limitation() -> String {
         "Per-application audio capture is not supported on this operating system.".to_owned()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_limitation_message_is_actionable() {
+        assert!(super::microphone_limitation().contains("microphone"));
+        assert!(!super::system_limitation().is_empty());
+        assert!(super::application_limitation().contains("audio"));
+    }
+}
