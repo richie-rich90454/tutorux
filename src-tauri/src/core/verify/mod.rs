@@ -5,7 +5,7 @@ use crate::core::index::primary_index_key;
 
 mod assets;
 mod full;
-mod guide;
+pub(crate) mod guide;
 mod helpers;
 mod history;
 mod references;
