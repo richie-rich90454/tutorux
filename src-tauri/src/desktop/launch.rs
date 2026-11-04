@@ -4,8 +4,10 @@ use tauri::State;
 
 #[tauri::command]
 pub(crate) fn take_pending_open_archive(
+    window: tauri::WebviewWindow,
     state: State<'_, DesktopState>,
 ) -> Result<Option<String>, String> {
+    crate::desktop::window::ensure_main_window(&window)?;
     let path = state
         .pending_open
         .lock()
