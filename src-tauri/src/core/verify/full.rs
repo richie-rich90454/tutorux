@@ -110,7 +110,7 @@ pub fn verify_full(
         }
         match decode_commit(snapshot.source.as_ref(), commit.previous_offset) {
             Ok(previous) => {
-                if previous.generation + 1 != commit.generation {
+                if previous.generation.checked_add(1) != Some(commit.generation) {
                     issues.push("Commit generations are not consecutive.".to_owned());
                     break;
                 }
@@ -178,7 +178,10 @@ pub fn verify_full(
                 || frame.record_type != latest_frame.record_type
                 || !frame.id.eq_ignore_ascii_case(&latest_frame.id)
                 || newer_revision
-                    .map(|revision| frame.revision >= revision || frame.revision + 1 != revision)
+                    .map(|revision| {
+                        frame.revision >= revision
+                            || frame.revision.checked_add(1) != Some(revision)
+                    })
                     .unwrap_or(false)
                 || (frame.previous_offset != 0 && frame.previous_offset >= offset)
             {
