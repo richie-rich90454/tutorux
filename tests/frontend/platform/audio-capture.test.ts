@@ -789,7 +789,10 @@ describe("desktop live transcription", () => {
                 onLiveFailure: failure,
             },
         );
-        for (let index = 0; index < 16; index += 1) emit(new Float32Array(16_384));
+        for (let index = 0; index < 128; index += 1) {
+            emit(new Float32Array(16_384));
+            if (index % 8 === 0) await tick();
+        }
         await tick();
         emit(new Float32Array(16_384));
         expect(failure).toHaveBeenCalledWith(
@@ -798,7 +801,7 @@ describe("desktop live transcription", () => {
         gate.reject(new Error("late failure"));
         await tick();
         await tick();
-        state.finishSampleCount = "278528";
+        state.finishSampleCount = String(129 * 16_384);
         await capture.stop();
         expect(failure).toHaveBeenCalledTimes(1);
     });
