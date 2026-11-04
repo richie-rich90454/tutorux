@@ -21,6 +21,21 @@ pub(crate) fn save_replacing(
     next: &ArchiveSnapshot,
 ) -> CliResult<()> {
     let expected = current.source.read(0, current.source.size() as usize)?;
+    let parsed = crate::core::archive::ArchiveSnapshot::open_bytes(expected.clone())
+        .map_err(|_| CliError(
+            "The archive changed on disk after this operation started. Reopen it and retry; no changes were written."
+                .to_owned(),
+        ))?;
+    if parsed.header.id != current.header.id
+        || parsed.commit.offset != current.commit.offset
+        || parsed.commit.generation != current.commit.generation
+    {
+        return Err(CliError(
+            "The archive changed on disk after this operation started. Reopen it and retry; no changes were written."
+                .to_owned(),
+        )
+        .into());
+    }
     let bytes = next.source.read(0, next.source.size() as usize)?;
     crate::core::cli::archive::save::replace_existing(path, &expected, &bytes)?;
     Ok(())
