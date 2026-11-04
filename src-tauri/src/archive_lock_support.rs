@@ -5,11 +5,55 @@
 
 use sha2::{Digest, Sha256};
 use std::{
+    cell::RefCell,
     env,
     fs::{self, File, OpenOptions, TryLockError},
     io,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
+
+pub type SharedArchiveLock = Arc<Mutex<ArchiveLock>>;
+
+thread_local! {
+    static AMBIENT_LOCKS: RefCell<Vec<(PathBuf, SharedArchiveLock)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Make an already-open archive lock available to CLI code running in this thread.
+///
+/// The desktop console holds a shared lock for the open archive. The CLI normally
+/// creates its own lock, which would conflict with that lease. Registering the lease
+/// lets the CLI upgrade and reuse it instead of trying to open a second OS lock.
+pub fn register_ambient_archive_lock(
+    path: &Path,
+    lock: SharedArchiveLock,
+) -> Result<AmbientLockRegistration, String> {
+    let key = canonical_archive_path(path)?;
+    AMBIENT_LOCKS.with(|locks| locks.borrow_mut().push((key, lock)));
+    Ok(AmbientLockRegistration)
+}
+
+pub struct AmbientLockRegistration;
+
+impl Drop for AmbientLockRegistration {
+    fn drop(&mut self) {
+        AMBIENT_LOCKS.with(|locks| {
+            locks.borrow_mut().pop();
+        });
+    }
+}
+
+pub fn ambient_archive_lock(path: &Path) -> Result<Option<SharedArchiveLock>, String> {
+    let key = canonical_archive_path(path)?;
+    Ok(AMBIENT_LOCKS.with(|locks| {
+        locks
+            .borrow()
+            .iter()
+            .rev()
+            .find(|(candidate, _)| candidate == &key)
+            .map(|(_, lock)| Arc::clone(lock))
+    }))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LockMode {
