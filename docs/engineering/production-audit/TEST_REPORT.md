@@ -9,12 +9,13 @@ Environment: Windows 11, Node 24, pnpm 12, Rust stable 1.97, Tauri 2. All browse
 | `pnpm run format:check` | PASS | oxfmt over 298 files |
 | `pnpm test` | PASS | 111 files, 2,130 tests |
 | `pnpm run test:coverage` | PASS | 100% statements, branches, functions, lines |
-| `pnpm exec playwright test --workers=2` | PASS | 35 tests, headless Chromium |
+| `pnpm exec playwright test --workers=2` | PASS | 36 tests, headless Chromium |
 | `node scripts/e2e-coverage.mjs --check` | PASS | statements 48.57%, branches 35.13%, functions 58.79%, lines 48.80% (floors 48/34/58/48) |
 | `cargo fmt --check` | PASS | after formatting |
 | `cargo clippy --locked --offline --all-targets --all-features -D warnings` | PASS | no warnings |
 | `cargo check --locked --offline --all-features --bins` | PASS | desktop and CLI targets |
-| `cargo test --locked --offline --all-features` | PASS | 234 library tests + 8 audio-helper tests, 0 failed |
+| `cargo test --locked --offline --all-features` | PASS | 245 library tests + 8 audio-helper tests, 0 failed |
+| Instrumented Rust coverage | PARTIAL | 59.83% lines / 54.72% functions; unreachable host/hardware categories and method are in `RUST-COVERAGE.md` |
 | `node scripts/rust-parity/run.mjs` | PASS | 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm run build` | PASS | web build |
 | `pnpm run build:desktop` | PASS | desktop Vite build |
