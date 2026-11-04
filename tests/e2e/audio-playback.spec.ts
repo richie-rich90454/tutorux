@@ -167,6 +167,7 @@ test("manages recording take and track names and restores trashed audio", async 
     await (await chooser).setFiles(archivePath);
     await expect(page.getByRole("button", { name: /Audio test archive/u })).toBeVisible();
     await page.getByRole("button", { name: "Record", exact: true }).click();
+    await page.getByRole("tab", { name: "3. Mix" }).click();
 
     await expect(page.getByRole("region", { name: "Recording takes" })).toBeVisible();
     await page.getByLabel("Recording take name").fill("Review take");
@@ -187,6 +188,7 @@ test("manages recording take and track names and restores trashed audio", async 
     ).toBeVisible();
     await page.getByRole("button", { name: "Restore take" }).click();
     await expect(page.getByLabel("Recording take name")).toHaveValue("Review take");
+    await page.getByRole("tab", { name: "2. Review" }).click();
     await expect(page.locator(".transcript-audio-copy strong")).toHaveText("Tutor mic");
 });
 
