@@ -217,7 +217,9 @@ fn scan_for_committed_root(
             let mut index = bytes.len() - LOCATOR_SIZE as usize;
             loop {
                 let candidate_offset = read_start + index as u64;
-                if candidate_offset >= chunk_start && &bytes[index..index + 8] == b"TUXLOC1\0" {
+                // The overlap before chunk_start is read so locators straddling the chunk
+                // boundary are still considered. The next chunk cannot see them whole.
+                if &bytes[index..index + 8] == b"TUXLOC1\0" {
                     let locator = &bytes[index..index + LOCATOR_SIZE as usize];
                     if valid_locator(locator) {
                         let commit_offset = u64::from_le_bytes(locator[8..16].try_into().unwrap());
