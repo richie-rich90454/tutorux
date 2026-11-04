@@ -1,5 +1,5 @@
 import { buttonOutline, buttonPrimary, cn } from "./ui";
-import { createEffect, createSignal, onCleanup, For, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, For, Show, untrack } from "solid-js";
 import { isTauri } from "@tauri-apps/api/core";
 import type { ArchiveSnapshot } from "./archive/archive";
 import { newUuid, RecordType, type ArchiveRecord } from "./archive/format";
@@ -130,7 +130,7 @@ export function MicrophoneTrackRecorder(props: Props) {
             threadCount: liveThreadCount(),
         };
         try {
-            localStorage.setItem("tutorux.live-whisper.settings.v1", JSON.stringify(settings));
+            localStorage.setItem("tutorux.live-whisper.settings.v2", JSON.stringify(settings));
         } catch {
             // Recording remains available when browser storage is disabled or full.
         }
@@ -279,7 +279,9 @@ export function MicrophoneTrackRecorder(props: Props) {
         liveSendingEnabled = false;
         setLiveStreaming(false);
         setLiveStatus("Live transcription stopped. Microphone recording continues.");
-        setLiveError(message);
+        setLiveError(
+            `${message} Use Review → Transcribe recording for an offline pass after you stop.`,
+        );
         if (liveRunId) void cancelLiveWhisper(liveRunId).catch(() => undefined);
     };
 
@@ -379,6 +381,18 @@ export function MicrophoneTrackRecorder(props: Props) {
                     setLiveStatus("Transcribing locally while the microphone recording continues…");
                 }
                 const acknowledged = await persistLivePoll(runId, poll);
+                if (!shouldFinalize && (poll.status === "failed" || poll.status === "cancelled")) {
+                    await endLiveWhisper(runId);
+                    liveRunId = undefined;
+                    setLiveRunActive(false);
+                    liveTrackId = undefined;
+                    liveSessionId = undefined;
+                    liveSendingEnabled = false;
+                    setLiveStreaming(false);
+                    if (livePollTimer) clearInterval(livePollTimer);
+                    livePollTimer = undefined;
+                    return true;
+                }
                 if (shouldFinalize && poll.cues.length > 0 && acknowledged === 0) {
                     throw new Error(
                         "A live transcript cue is waiting for its source audio checkpoint to be saved.",
@@ -1032,31 +1046,52 @@ export function MicrophoneTrackRecorder(props: Props) {
         }
     };
 
+    const banner = createMemo(() => {
+        if (error()) return { text: error(), error: true };
+        if (pending())
+            return { text: "The take is saved locally. Retry the archive save.", error: true };
+        const stateHint =
+            state() === "requesting"
+                ? "Waiting for microphone permission…"
+                : state() === "pausing" || state() === "resuming"
+                  ? "Changing recording state…"
+                  : state() === "stopping" || state() === "saving"
+                    ? "Preparing recording…"
+                    : state() === "paused"
+                      ? "Recording paused; microphone muted."
+                      : "";
+        if (liveError()) return { text: liveError(), error: true };
+        if (liveStatus()) return { text: liveStatus(), error: false };
+        if (status()) return { text: status(), error: false };
+        if (stateHint) return { text: stateHint, error: false };
+        return null;
+    });
+
     return (
         <section
             class={cn(
                 "transcript-capture-panel",
-                "max-[650px]:gap-[11px] max-[650px]:grid-cols-[minmax(0,_1fr)] max-[650px]:p-3.5 min-[651px]:max-[900px]:grid-cols-[minmax(0,_1fr)_auto] items-center bg-[color-mix(in_srgb,_var(--accent-soft)_48%,_var(--surface))] rounded-[9px] border border-[color-mix(in_srgb,_var(--accent)_19%,_var(--line))] grid gap-y-[13px] gap-x-4.5 grid-cols-[minmax(220px,_1fr)_minmax(210px,_auto)_auto] mt-0 mr-0 mb-3.5 ml-0 py-[15px] px-[17px]",
+                "grid gap-3 rounded-[9px] border border-[color-mix(in_srgb,_var(--accent)_19%,_var(--line))] bg-[color-mix(in_srgb,_var(--accent-soft)_48%,_var(--surface))] p-[17px] max-sm:p-3.5",
             )}
-            aria-label="Record a session track"
+            aria-label="Record a microphone track"
         >
-            <div
-                class={cn(
-                    "transcript-capture-copy",
-                    "max-[650px]:col-[auto] min-[651px]:max-[900px]:col-span-full grid gap-1 min-w-0",
-                )}
-            >
-                <strong class="text-ink text-[15px] font-[650]">Record a microphone track</strong>
-                <p class="text-muted text-[13px] leading-[1.5] m-0">
-                    Save a recording as a session take for playback, mixing, and transcription.
-                </p>
-                <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]">
-                    Microphone{" "}
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="grid min-w-0 gap-1">
+                    <strong class="text-[15px] font-[650] text-ink">Record microphone</strong>
+                    <p class="m-0 text-[13px] leading-[1.5] text-muted">
+                        Capture this session, then review or transcribe it below.
+                    </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                    <label class="sr-only" for="microphone-device">
+                        Microphone
+                    </label>
                     <select
+                        id="microphone-device"
                         value={deviceId()}
                         disabled={state() !== "idle"}
                         onChange={(event) => setDeviceId(event.currentTarget.value)}
-                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
+                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] max-w-full min-w-0 rounded-[5px] border border-line bg-surface px-[9px] py-1.5 text-ink"
                     >
                         <option value="">System default</option>
                         <For each={devices()}>
@@ -1067,148 +1102,55 @@ export function MicrophoneTrackRecorder(props: Props) {
                             )}
                         </For>
                     </select>
-                </label>
-                <button
-                    class={cn("button button-outline", buttonOutline)}
-                    type="button"
-                    disabled={state() !== "idle"}
-                    onClick={() => void refreshDevices()}
-                >
-                    Refresh microphones
-                </button>
-                <label
-                    class={cn(
-                        "transcript-capture-consent",
-                        "leading-[1.45] items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]",
-                    )}
-                >
-                    <input
-                        type="checkbox"
-                        checked={consent()}
-                        disabled={state() !== "idle"}
-                        onChange={(event) => setConsent(event.currentTarget.checked)}
-                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] accent-accent flex-none h-[15px] w-[15px]"
-                    />{" "}
-                    Everyone being recorded has agreed.
-                </label>
-                <Show when={isTauri()}>
-                    <div
-                        class={cn(
-                            "transcript-whisper",
-                            "[&_[role='alert']]:text-danger [&_[role='status']]:text-[var(--success)] max-[650px]:p-3.5 bg-surface-subtle rounded-[9px] border border-line grid gap-[9px] col-span-full mt-3.5 py-[17px] px-4.5",
-                        )}
-                    >
-                        <strong class="text-ink text-sm font-semibold">
-                            Live local transcription
-                        </strong>
-                        <label class="items-center text-ink-soft grid text-xs gap-[9px] grid-cols-[auto_minmax(120px,_1fr)]">
-                            <input
-                                type="checkbox"
-                                checked={liveTranscription()}
-                                disabled={state() !== "idle" || liveRunActive()}
-                                onChange={(event) =>
-                                    setLiveTranscription(event.currentTarget.checked)
-                                }
-                                class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)]"
-                            />{" "}
-                            Add provisional transcript cues while recording
-                        </label>
-                        <Show when={liveTranscription()}>
-                            <div
-                                class={cn(
-                                    "transcript-whisper-actions",
-                                    "max-[650px]:items-stretch items-center flex flex-wrap gap-y-2 gap-x-3 mt-0.5",
-                                )}
-                            >
-                                <span class={cn("transcript-model-badge", "text-[13px]")}>
-                                    Bundled multilingual model · runs offline
-                                </span>
-                                <label class="grid-cols-[auto_minmax(120px,_1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
-                                    Language{" "}
-                                    <input
-                                        value={liveLanguage()}
-                                        aria-label="Live Whisper language code"
-                                        disabled={state() !== "idle" || liveRunActive()}
-                                        onInput={(event) =>
-                                            setLiveLanguage(event.currentTarget.value)
-                                        }
-                                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
-                                    />
-                                </label>
-                                <label class="grid-cols-[auto_minmax(120px,_1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
-                                    Window{" "}
-                                    <select
-                                        value={String(liveWindowSeconds())}
-                                        aria-label="Live Whisper window length"
-                                        disabled={state() !== "idle" || liveRunActive()}
-                                        onChange={(event) =>
-                                            setLiveWindowSeconds(Number(event.currentTarget.value))
-                                        }
-                                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
-                                    >
-                                        <For each={[1, 3, 5, 10, 15, 20, 27]}>
-                                            {(seconds) => (
-                                                <option value={seconds}>{seconds}s</option>
-                                            )}
-                                        </For>
-                                    </select>
-                                </label>
-                                <label class="grid-cols-[auto_minmax(120px,_1fr)] [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
-                                    Threads{" "}
-                                    <select
-                                        value={String(liveThreadCount())}
-                                        aria-label="Live Whisper worker threads"
-                                        disabled={state() !== "idle" || liveRunActive()}
-                                        onChange={(event) =>
-                                            setLiveThreadCount(Number(event.currentTarget.value))
-                                        }
-                                        class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] bg-surface rounded-[5px] border border-line text-ink max-w-full min-w-0 py-1.5 px-[9px]"
-                                    >
-                                        <For each={[1, 2, 4, 8, 16, 32, 64]}>
-                                            {(threads) => (
-                                                <option value={threads}>{threads}</option>
-                                            )}
-                                        </For>
-                                    </select>
-                                </label>
-                            </div>
-                        </Show>
-                    </div>
-                </Show>
-            </div>
-            <div
-                class={cn(
-                    "transcript-capture-actions",
-                    "max-[650px]:justify-start items-center flex flex-wrap gap-2 justify-end",
-                )}
-            >
-                <Show when={state() === "idle" && !pending()}>
                     <button
-                        class={cn("button button-primary", buttonPrimary)}
+                        class="text-xs font-semibold text-accent underline-offset-2 hover:underline disabled:opacity-50"
                         type="button"
-                        disabled={props.disabled || !consent() || liveRunActive()}
-                        onClick={() => void start()}
+                        disabled={state() !== "idle"}
+                        onClick={() => void refreshDevices()}
                     >
-                        {recoverable() ? "Start a new recording" : "Start recording"}
+                        Refresh
                     </button>
-                </Show>
-                <Show when={state() === "idle" && !pending() && recoverable()}>
-                    <div
-                        class="transcript-capture-recovery"
-                        role="group"
-                        aria-label="Recover microphone take"
-                    >
-                        <span>
-                            {recoverable()?.label} has saved audio checkpoints. Verify them to
-                            resume, or move the take to Trash.
-                        </span>
+                    <label class="inline-flex items-center gap-2 text-xs leading-[1.45] text-ink-soft">
+                        <input
+                            type="checkbox"
+                            checked={consent()}
+                            disabled={state() !== "idle"}
+                            onChange={(event) => setConsent(event.currentTarget.checked)}
+                            class="h-[15px] w-[15px] flex-none accent-accent"
+                        />
+                        Everyone has agreed.
+                    </label>
+                    <Show when={state() === "idle" && !pending()}>
+                        <button
+                            class={cn("button button-primary", buttonPrimary)}
+                            type="button"
+                            disabled={props.disabled || !consent() || liveRunActive()}
+                            onClick={() => void start()}
+                        >
+                            Start recording
+                        </button>
+                    </Show>
+                </div>
+            </div>
+
+            <Show when={state() === "idle" && !pending() && recoverable()}>
+                <div
+                    class="flex flex-wrap items-center justify-between gap-2 rounded-[5px] border border-line bg-surface px-3 py-2 text-xs text-muted"
+                    role="group"
+                    aria-label="Recover microphone take"
+                >
+                    <span>
+                        A saved take is recoverable: {recoverable()?.label}. Resume it or move it to
+                        Trash.
+                    </span>
+                    <span class="flex flex-wrap gap-2">
                         <button
                             class={cn("button button-outline", buttonOutline)}
                             type="button"
                             disabled={props.disabled || !consent() || liveRunActive()}
                             onClick={() => void resumeSaved()}
                         >
-                            Verify and resume take
+                            Resume take
                         </button>
                         <button
                             class={cn("button button-outline", buttonOutline)}
@@ -1216,20 +1158,23 @@ export function MicrophoneTrackRecorder(props: Props) {
                             disabled={props.disabled}
                             onClick={() => void discardSaved()}
                         >
-                            Move saved take to Trash
+                            Move to Trash
                         </button>
-                    </div>
-                </Show>
-                <Show when={state() === "recording" || state() === "paused"}>
+                    </span>
+                </div>
+            </Show>
+
+            <Show when={state() === "recording" || state() === "paused"}>
+                <div class="flex flex-wrap items-center gap-2">
                     <button
                         class={cn("button button-outline", buttonOutline)}
                         type="button"
                         onClick={() => void togglePause()}
                     >
-                        {state() === "paused" ? "Resume recording" : "Pause recording"}
+                        {state() === "paused" ? "Resume" : "Pause"}
                     </button>
                     <button
-                        class={cn("button button-outline", buttonOutline)}
+                        class={cn("button button-primary", buttonPrimary)}
                         type="button"
                         onClick={() => void stop()}
                     >
@@ -1240,40 +1185,13 @@ export function MicrophoneTrackRecorder(props: Props) {
                         type="button"
                         onClick={() => void discardActive()}
                     >
-                        Discard take
+                        Discard
                     </button>
-                    <Show when={liveStreaming()}>
-                        <button
-                            class={cn("button button-outline", buttonOutline)}
-                            type="button"
-                            onClick={() => void cancelLiveTranscription()}
-                        >
-                            Stop live transcription
-                        </button>
-                    </Show>
-                </Show>
-                <Show when={liveRunActive() && state() === "idle"}>
-                    <button
-                        class={cn("button button-outline", buttonOutline)}
-                        type="button"
-                        onClick={() => void finalizeLiveWhisper()}
-                    >
-                        Save remaining transcript cues
-                    </button>
-                </Show>
-                <Show when={state() === "paused"}>
-                    <span role="status">Recording paused; microphone muted.</span>
-                </Show>
-                <Show when={state() === "pausing" || state() === "resuming"}>
-                    <span role="status">Changing recording state…</span>
-                </Show>
-                <Show when={state() === "requesting"}>
-                    <span role="status">Waiting for microphone permission…</span>
-                </Show>
-                <Show when={state() === "stopping" || state() === "saving"}>
-                    <span role="status">Preparing recording…</span>
-                </Show>
-                <Show when={state() === "idle" && pending()}>
+                </div>
+            </Show>
+
+            <Show when={state() === "idle" && pending()}>
+                <div class="flex flex-wrap items-center gap-2">
                     <button
                         class={cn("button button-primary", buttonPrimary)}
                         type="button"
@@ -1283,7 +1201,7 @@ export function MicrophoneTrackRecorder(props: Props) {
                             if (capture) void save(capture);
                         }}
                     >
-                        Retry saving
+                        Retry save
                     </button>
                     <button
                         class={cn("button button-outline", buttonOutline)}
@@ -1295,19 +1213,120 @@ export function MicrophoneTrackRecorder(props: Props) {
                     >
                         Discard recording
                     </button>
-                </Show>
-            </div>
-            <Show when={status()}>
-                <p role="status">{status()}</p>
+                </div>
             </Show>
-            <Show when={liveStatus()}>
-                <p role="status">{liveStatus()}</p>
+
+            <Show when={isTauri()}>
+                <details class="rounded-[5px] border border-line bg-surface px-3 py-2">
+                    <summary class="cursor-pointer text-xs font-semibold text-ink-soft">
+                        Live transcription {liveTranscription() ? "· on" : "· off"}
+                    </summary>
+                    <div class="mt-2 grid gap-2">
+                        <label class="inline-flex items-center gap-2 text-xs text-ink-soft">
+                            <input
+                                type="checkbox"
+                                checked={liveTranscription()}
+                                disabled={state() !== "idle" || liveRunActive()}
+                                onChange={(event) =>
+                                    setLiveTranscription(event.currentTarget.checked)
+                                }
+                                class="accent-accent"
+                            />
+                            Add provisional cues while recording
+                        </label>
+                        <Show when={liveTranscription()}>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <label class="inline-flex items-center gap-1.5 text-xs text-muted">
+                                    Language
+                                    <input
+                                        value={liveLanguage()}
+                                        aria-label="Live Whisper language code"
+                                        disabled={state() !== "idle" || liveRunActive()}
+                                        onInput={(event) =>
+                                            setLiveLanguage(event.currentTarget.value)
+                                        }
+                                        class="h-8 w-16 rounded-[5px] border border-line bg-surface px-2 text-ink"
+                                    />
+                                </label>
+                                <label class="inline-flex items-center gap-1.5 text-xs text-muted">
+                                    Window
+                                    <select
+                                        value={String(liveWindowSeconds())}
+                                        aria-label="Live Whisper window length"
+                                        disabled={state() !== "idle" || liveRunActive()}
+                                        onChange={(event) =>
+                                            setLiveWindowSeconds(Number(event.currentTarget.value))
+                                        }
+                                        class="h-8 rounded-[5px] border border-line bg-surface px-2 text-ink"
+                                    >
+                                        <For each={[1, 3, 5, 10, 15, 20, 27]}>
+                                            {(seconds) => (
+                                                <option value={seconds}>{seconds}s</option>
+                                            )}
+                                        </For>
+                                    </select>
+                                </label>
+                                <label class="inline-flex items-center gap-1.5 text-xs text-muted">
+                                    Threads
+                                    <select
+                                        value={String(liveThreadCount())}
+                                        aria-label="Live Whisper worker threads"
+                                        disabled={state() !== "idle" || liveRunActive()}
+                                        onChange={(event) =>
+                                            setLiveThreadCount(Number(event.currentTarget.value))
+                                        }
+                                        class="h-8 rounded-[5px] border border-line bg-surface px-2 text-ink"
+                                    >
+                                        <For each={[1, 2, 4, 8, 16, 32, 64]}>
+                                            {(threads) => (
+                                                <option value={threads}>{threads}</option>
+                                            )}
+                                        </For>
+                                    </select>
+                                </label>
+                                <Show when={liveStreaming()}>
+                                    <button
+                                        class="text-xs font-semibold text-accent underline-offset-2 hover:underline"
+                                        type="button"
+                                        onClick={() => void cancelLiveTranscription()}
+                                    >
+                                        Stop live transcription
+                                    </button>
+                                </Show>
+                                <Show when={liveRunActive() && state() === "idle"}>
+                                    <button
+                                        class="text-xs font-semibold text-accent underline-offset-2 hover:underline"
+                                        type="button"
+                                        onClick={() => void finalizeLiveWhisper()}
+                                    >
+                                        Save remaining cues
+                                    </button>
+                                </Show>
+                            </div>
+                            <span class="text-xs leading-relaxed text-muted">
+                                Bundled multilingual Whisper model · runs offline. If live
+                                transcription stops, use Review → Transcribe recording on the saved
+                                take.
+                            </span>
+                        </Show>
+                    </div>
+                </details>
             </Show>
-            <Show when={liveError()}>
-                <p role="alert">{liveError()}</p>
-            </Show>
-            <Show when={error()}>
-                <p role="alert">{error()}</p>
+
+            <Show when={banner()}>
+                {(item) => (
+                    <p
+                        class={cn(
+                            "m-0 rounded-[5px] border px-3 py-2 text-xs leading-relaxed",
+                            item().error
+                                ? "border-[var(--danger-soft)] bg-[var(--danger-soft)] text-danger"
+                                : "border-line bg-surface text-muted",
+                        )}
+                        role={item().error ? "alert" : "status"}
+                    >
+                        {item().text}
+                    </p>
+                )}
             </Show>
         </section>
     );
@@ -1325,12 +1344,12 @@ function incrementCounter(value: string | undefined): string {
 function loadLiveWhisperSettings(): LiveWhisperSettings {
     const defaults: LiveWhisperSettings = {
         language: "auto",
-        windowSeconds: 5,
+        windowSeconds: 10,
         threadCount: 4,
     };
     try {
         const value: unknown = JSON.parse(
-            localStorage.getItem("tutorux.live-whisper.settings.v1") ?? "null",
+            localStorage.getItem("tutorux.live-whisper.settings.v2") ?? "null",
         );
         if (!value || typeof value !== "object") return defaults;
         const stored = value as Partial<LiveWhisperSettings>;
