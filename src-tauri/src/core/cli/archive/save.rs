@@ -71,11 +71,36 @@ pub(crate) fn save_bytes(path: &Path, bytes: &[u8]) -> Result<()> {
 /// while the exclusive byte-range lock is held. Publication moves the old file aside and renames
 /// the staged replacement into place, so a locked destination is never overwritten in place.
 pub(crate) fn replace_existing(path: &Path, expected: &[u8], replacement: &[u8]) -> CliResult<()> {
+    if let Some(shared) =
+        crate::archive_lock_support::ambient_archive_lock(path).map_err(CliError)?
+    {
+        let mut archive_lock = shared
+            .lock()
+            .map_err(|_| CliError("The archive lock is unavailable.".to_owned()))?;
+        let was_shared = archive_lock.mode() == Some(crate::archive_lock_support::LockMode::Shared);
+        if archive_lock.mode() != Some(crate::archive_lock_support::LockMode::Exclusive) {
+            archive_lock.try_upgrade().map_err(CliError)?;
+        }
+        let result = replace_existing_locked(&mut archive_lock, path, expected, replacement);
+        if was_shared {
+            let _ = archive_lock.downgrade();
+        }
+        return result;
+    }
     let mut archive_lock = crate::archive_lock_support::ArchiveLock::try_acquire(
         path,
         crate::archive_lock_support::LockMode::Exclusive,
     )
     .map_err(CliError)?;
+    replace_existing_locked(&mut archive_lock, path, expected, replacement)
+}
+
+fn replace_existing_locked(
+    archive_lock: &mut crate::archive_lock_support::ArchiveLock,
+    path: &Path,
+    expected: &[u8],
+    replacement: &[u8],
+) -> CliResult<()> {
     let current = archive_lock.read_archive_bytes().map_err(CliError)?;
     if current != expected {
         return Err(CliError(
