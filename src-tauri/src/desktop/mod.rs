@@ -6,6 +6,7 @@ pub(crate) mod launch;
 pub(crate) mod menu;
 pub(crate) mod save;
 pub(crate) mod state;
+pub(crate) mod window;
 
 #[cfg(test)]
 mod flow_tests;
