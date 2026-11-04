@@ -7,7 +7,7 @@ import {
 const MAX_PCM_BYTES = 128 * 1024 * 1024;
 const MAX_QUEUED_BYTES = 1024 * 1024;
 const LIVE_CHUNK_BYTES = 32 * 1024;
-const MAX_LIVE_QUEUED_BYTES = 512 * 1024;
+const MAX_LIVE_QUEUED_BYTES = 4 * 1024 * 1024;
 
 export interface MicrophoneCaptureResult {
     file?: File;
