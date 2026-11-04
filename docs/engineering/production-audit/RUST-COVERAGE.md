@@ -18,7 +18,7 @@ Profiles were merged with the rustup `llvm-profdata` and reported with `llvm-cov
 
 ## Result
 
-- Rust library tests: **245 pass**.
+- Rust library tests: **246 pass**.
 - Audio-helper tests: **8 pass**.
 - CLI parity: **47/47 cases**, **218/218 capabilities**.
 - Measured first-party Rust line coverage: **59.83%** (51,243 lines, 20,584 missed); function coverage **54.72%**.
@@ -47,6 +47,6 @@ This is not 100% and is not reported as 100%.
 
 ## Classification
 
-- **VERIFIED:** all 245 library and 8 helper tests pass; the recording playback and multiple-recording paths added here are covered by Rust tests and Playwright.
+- **VERIFIED:** all 246 library and 8 helper tests pass; the recording playback and multiple-recording paths added here are covered by Rust tests and Playwright.
 - **PARTIAL:** Rust line coverage is 59.83%; reaching 100% is not possible under the no-window/no-hardware rules without replacing native integrations with mocks that would no longer verify the shipped boundary.
 - **NOT A BUG CLAIM:** uncovered code is not assumed correct. It is either covered by contract/behavior tests without line instrumentation or explicitly recorded here as unmeasured.
