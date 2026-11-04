@@ -23,7 +23,9 @@ pub fn run() {
                     Path::new(&current_directory),
                 ) {
                     if let Ok(mut pending) = app.state::<DesktopState>().pending_open.lock() {
-                        pending.push_back(path);
+                        if pending.len() < 8 {
+                            pending.push_back(path);
+                        }
                         let _ = app.emit("tutorux:native-command", "open-launch-archive");
                     }
                 }
