@@ -1,6 +1,6 @@
 import { buttonOutline, buttonPrimary, cn } from "./ui";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup, Show, untrack } from "solid-js";
 import { newUuid } from "./archive/format";
 import type { ArchiveRecord } from "./archive/format";
 import type { ArchiveSnapshot } from "./archive/archive";
@@ -26,7 +26,16 @@ export function WhisperTranscription(props: Props) {
     const [language, setLanguage] = createSignal("auto");
     const [busy, setBusy] = createSignal(false);
     const [fullTrack, setFullTrack] = createSignal(true);
-    const [refine, setRefine] = createSignal(false);
+    const [refine, setRefine] = createSignal(
+        untrack(() =>
+            props.records.some(
+                (record) =>
+                    record.fields.get("origin") === "local-whisper" &&
+                    record.fields.get("verification_state") === "provisional" &&
+                    !record.fields.has("human_edited_at_us"),
+            ),
+        ),
+    );
     const [message, setMessage] = createSignal("");
     const [error, setError] = createSignal("");
     let runId: string | undefined;
@@ -49,9 +58,16 @@ export function WhisperTranscription(props: Props) {
             const sessionId = props.sessionId;
             const trackId = props.trackId;
             const selectedLanguage = language().trim();
-            const replacement = refine();
-            const wholeTrack = fullTrack();
             const existing = props.records;
+            const replacement =
+                refine() ||
+                existing.some(
+                    (record) =>
+                        record.fields.get("origin") === "local-whisper" &&
+                        record.fields.get("verification_state") === "provisional" &&
+                        !record.fields.has("human_edited_at_us"),
+                );
+            const wholeTrack = fullTrack();
             const provenanceRunId = newUuid();
             const preview =
                 sourcePreview ??
@@ -220,68 +236,32 @@ export function WhisperTranscription(props: Props) {
     return (
         <div
             class={cn(
-                "transcript-whisper col-span-full min-w-0 rounded-panel border border-line bg-surface-subtle p-4",
-                "[&_[role='alert']]:text-danger [&_[role='status']]:text-[var(--success)] max-[650px]:p-3.5 rounded-[9px] grid gap-[9px] mt-3.5 py-[17px] px-4.5",
+                "transcript-whisper min-w-0 rounded-[9px] border border-line bg-surface-subtle p-4 max-[650px]:p-3.5",
+                "grid gap-2.5",
             )}
         >
-            <strong class="text-ink text-sm font-semibold">Transcribe this recording</strong>
+            <div class="flex flex-wrap items-start justify-between gap-2">
+                <div class="grid min-w-0 gap-1">
+                    <strong class="text-sm font-semibold text-ink">
+                        Transcribe this recording
+                    </strong>
+                    <p class="m-0 max-w-[72ch] text-xs leading-[1.55] text-muted">
+                        Creates provisional timestamped cues with the bundled offline model.
+                    </p>
+                </div>
+                <span class="rounded-[5px] border border-line-soft bg-accent-soft px-2 py-1 text-xs text-muted">
+                    Local · offline
+                </span>
+            </div>
             <Show
                 when={isTauri()}
                 fallback={
-                    <p class="text-muted text-xs leading-[1.55] m-0 max-w-[72ch]">
+                    <p class="m-0 max-w-[72ch] text-xs leading-[1.55] text-muted">
                         Local Whisper transcription is available in the desktop app.
                     </p>
                 }
             >
-                <p class="text-muted text-xs leading-[1.55] m-0 max-w-[72ch]">
-                    Create timestamped cues from the full recording with Whisper running locally.
-                    Review the cues below before using them.
-                </p>
-                <p
-                    class={cn(
-                        "transcript-whisper-model",
-                        "bg-accent-soft rounded-md border border-line-soft py-1.5 px-[9px] w-[fit-content] text-muted text-xs leading-[1.55] m-0 max-w-[72ch]",
-                    )}
-                    role="status"
-                >
-                    Bundled multilingual Whisper model · runs offline
-                </p>
-                <div
-                    class={cn(
-                        "transcript-whisper-actions",
-                        "max-[650px]:items-stretch items-center flex flex-wrap gap-y-2 gap-x-3 mt-0.5",
-                    )}
-                >
-                    <label class="[.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
-                        <input
-                            type="checkbox"
-                            checked={fullTrack()}
-                            disabled={busy()}
-                            onChange={(event) => setFullTrack(event.currentTarget.checked)}
-                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
-                        />{" "}
-                        Entire track
-                    </label>
-                    <label class="[.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
-                        <input
-                            type="checkbox"
-                            checked={refine()}
-                            disabled={busy()}
-                            onChange={(event) => setRefine(event.currentTarget.checked)}
-                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
-                        />{" "}
-                        Replace provisional Whisper cues
-                    </label>
-                    <label class="[.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:bg-transparent [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:border-0 [.transcript-whisper-actions_>_&:has(input:not([type='checkbox']))]:p-0 items-center bg-surface rounded-[7px] border border-line-soft text-ink-soft inline-flex text-[11px] gap-[7px] min-h-[34px] py-0 px-[9px]">
-                        Language{" "}
-                        <input
-                            value={language()}
-                            disabled={busy()}
-                            onInput={(event) => setLanguage(event.currentTarget.value)}
-                            aria-label="Whisper language code"
-                            class="focus-visible:outline-offset-1 focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,_var(--accent)_42%,_transparent)] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:bg-surface [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:rounded-md [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:border-line-strong [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:text-ink [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:h-[32px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:min-w-[64px] [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:py-0 [.transcript-whisper-actions_>_label_&:not([type='checkbox'])]:px-2 [.transcript-whisper-actions_>_label_&[type='checkbox']]:accent-accent"
-                        />
-                    </label>
+                <div class="flex flex-wrap items-center gap-2">
                     <button
                         class={cn("button button-primary", buttonPrimary)}
                         type="button"
@@ -291,8 +271,8 @@ export function WhisperTranscription(props: Props) {
                         {busy()
                             ? "Transcribing…"
                             : fullTrack()
-                              ? "Transcribe full recording"
-                              : "Transcribe preview"}
+                              ? "Transcribe recording"
+                              : "Transcribe 30-second preview"}
                     </button>
                     <Show when={busy()}>
                         <button
@@ -300,17 +280,54 @@ export function WhisperTranscription(props: Props) {
                             type="button"
                             onClick={cancel}
                         >
-                            Cancel transcription
+                            Cancel
                         </button>
                     </Show>
+                    <details class="text-xs text-muted">
+                        <summary class="cursor-pointer font-semibold text-ink-soft">
+                            Options
+                        </summary>
+                        <div class="mt-2 flex flex-wrap items-center gap-3">
+                            <label class="inline-flex items-center gap-1.5">
+                                <input
+                                    type="checkbox"
+                                    checked={fullTrack()}
+                                    disabled={busy()}
+                                    onChange={(event) => setFullTrack(event.currentTarget.checked)}
+                                    class="accent-accent"
+                                />
+                                Entire recording
+                            </label>
+                            <label class="inline-flex items-center gap-1.5">
+                                <input
+                                    type="checkbox"
+                                    checked={refine()}
+                                    disabled={busy()}
+                                    onChange={(event) => setRefine(event.currentTarget.checked)}
+                                    class="accent-accent"
+                                />
+                                Replace provisional Whisper cues
+                            </label>
+                            <label class="inline-flex items-center gap-1.5">
+                                Language
+                                <input
+                                    value={language()}
+                                    disabled={busy()}
+                                    onInput={(event) => setLanguage(event.currentTarget.value)}
+                                    aria-label="Whisper language code"
+                                    class="h-8 w-16 rounded-[5px] border border-line bg-surface px-2 text-ink"
+                                />
+                            </label>
+                        </div>
+                    </details>
                 </div>
                 <Show when={message()}>
-                    <p role="status" class="text-muted text-xs leading-[1.55] m-0 max-w-[72ch]">
+                    <p role="status" class="m-0 max-w-[72ch] text-xs leading-[1.55] text-muted">
                         {message()}
                     </p>
                 </Show>
                 <Show when={error()}>
-                    <p role="alert" class="text-muted text-xs leading-[1.55] m-0 max-w-[72ch]">
+                    <p role="alert" class="m-0 max-w-[72ch] text-xs leading-[1.55] text-danger">
                         {error()}
                     </p>
                 </Show>
