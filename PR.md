@@ -135,7 +135,7 @@ All commands were run against the final working tree unless marked otherwise.
 | `pnpm run format:check` | PASS |
 | `pnpm run test:coverage` | PASS — **100% statements, branches, functions, lines**; 111 files, 2,130 tests |
 | `pnpm exec playwright test --workers=2` | PASS — 36 tests, headless Chromium |
-| `node scripts/e2e-coverage.mjs --check` | PASS — 48.67% statements / 35.19% branches / 58.92% functions / 48.89% lines |
+| `node scripts/e2e-coverage.mjs --check` | PASS — 48.72% statements / 35.21% branches / 58.99% functions / 48.92% lines |
 | `cargo fmt --check` | PASS |
 | `cargo clippy --locked --offline --all-targets --all-features -D warnings` | PASS |
 | `cargo check --locked --offline --all-features --bins` | PASS |
