@@ -12,6 +12,8 @@ test("keeps the quick-action palette closed while a form dialog is open", async 
     await page.getByRole("button", { name: "Add student", exact: true }).click();
     const studentDialog = page.getByRole("dialog").filter({ has: page.getByLabel("Student name") });
     await expect(studentDialog).toBeVisible();
+    const dialogWidth = (await studentDialog.boundingBox())?.width ?? 0;
+    expect(dialogWidth).toBeGreaterThanOrEqual(700);
 
     await studentDialog.getByRole("button", { name: "Add student", exact: true }).focus();
     await page.keyboard.press("Control+k");
