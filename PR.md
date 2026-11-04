@@ -68,6 +68,9 @@ The C++/Slint implementation was being retired, but Tutorux needed to retain its
 - Embedded the multilingual Whisper Base Q5_1 model in the desktop executable and added offline full-track and live transcription without extracting a model or requiring a Node runtime.
 - Added provisional cue review, cancellation, incremental commits, cue refinement, and transcript editing.
 - Added synchronized transcript playback: loading a cue highlights the active cue and keeps `aria-current` aligned with the selected recording, and the desktop/multi-track path supports selecting among multiple recordings in one session.
+- Simplified the Record workspace into **Capture → Review → Mix** panes, with one primary action per step. Microphone and synchronized-capture cards now use a single status banner, collapse live-transcription settings behind an explicit disclosure, and keep recovery actions visible only when a recoverable take exists.
+- Increased the live Whisper queue and default window (10 seconds), restarted cleanly after a failed/cancelled live session, and kept full-track offline transcription available from Review as the reliable fallback.
+- Enlarged shared creation/edit dialogs from 475 px to 760 px, removed the decorative dialog icon, collapsed journal filters behind a Filters disclosure, and grouped secondary audio imports into one menu.
 
 ### 7. AI providers and local inference
 
@@ -136,7 +139,7 @@ All commands were run against the final working tree unless marked otherwise.
 | `cargo fmt --check` | PASS |
 | `cargo clippy --locked --offline --all-targets --all-features -D warnings` | PASS |
 | `cargo check --locked --offline --all-features --bins` | PASS |
-| `cargo test --locked --offline --all-features` | PASS — 245 library tests + 8 audio-helper tests |
+| `cargo test --locked --offline --all-features` | PASS — 246 library tests + 8 audio-helper tests |
 | `node scripts/rust-parity/run.mjs` | PASS — 47/47 cases, 218 capabilities, 0 missing |
 | `pnpm run build` | PASS |
 | `pnpm run build:desktop` | PASS |
@@ -167,7 +170,7 @@ The embedded Whisper model is `resources/whisper/ggml-base-q5_1.bin`, SHA-256 `4
 - JavaScript dependency audit is clean. The OSV scan of 623 locked Rust packages found seven transitive advisories; `DEPENDENCY_AUDIT.md` records their target scope and mitigation. The Linux GTK/D-Bus advisories and the `ringbuf` fix require upstream dependency updates that are not available offline on this host.
 - Security residual: the in-app console intentionally exposes the CLI command surface, and desktop commands are callable by the main renderer. No XSS or remote-script path was found; every sensitive command validates the main window and file boundaries. A fully compromised renderer remains a trust boundary equal to the application process.
 - The 2026-11-04 benchmark is a single non-warmed Windows sample: 10,000 records, 4,622,032-byte archive, 679.23 ms append, 174.48 ms list, 152,084,480-byte RSS delta. It is directional, not a cross-platform memory budget.
-- Rust line coverage is instrumented at 59.83% across the full native target (245 library tests + 8 helper tests + 47 CLI contract cases). The remaining lines are desktop Tauri host/webview code, native capture backends, detached FFmpeg workers, and live-model sessions that cannot execute under the no-window/no-hardware rules. `RUST-COVERAGE.md` records the exact uncovered categories.
+- Rust line coverage is instrumented at 59.83% across the full native target (246 library tests + 8 helper tests + 47 CLI contract cases). The remaining lines are desktop Tauri host/webview code, native capture backends, detached FFmpeg workers, and live-model sessions that cannot execute under the no-window/no-hardware rules. `RUST-COVERAGE.md` records the exact uncovered categories.
 - JavaScript/TypeScript logic thresholds remain 100%, and browser E2E remains a ratchet; `.tsx` rendering branches are behaviorally covered rather than line-covered.
 
 ## Commit structure
