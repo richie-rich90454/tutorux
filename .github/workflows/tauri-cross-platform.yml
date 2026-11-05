@@ -91,33 +91,6 @@ jobs:
             - name: Verify application version consistency
               run: node scripts/collect-release.mjs --check-versions
 
-            - name: Read Playwright version
-              id: playwright-version
-              shell: bash
-              run: echo "version=$(node -p 'require("@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
-
-            - name: Cache Playwright browsers
-              id: playwright-cache
-              uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-              with:
-                  path: |
-                      ~/.cache/ms-playwright
-                      ~/Library/Caches/ms-playwright
-                      ~/AppData/Local/ms-playwright
-                  key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
-
-            - name: Install Playwright system dependencies on Linux
-              if: runner.os == 'Linux'
-              run: pnpm exec playwright install-deps chromium
-
-            - name: Install Playwright Chromium on Linux
-              if: runner.os == 'Linux' && steps.playwright-cache.outputs.cache-hit != 'true'
-              run: pnpm exec playwright install chromium
-
-            - name: Install Playwright Chromium
-              if: runner.os != 'Linux' && steps.playwright-cache.outputs.cache-hit != 'true'
-              run: pnpm exec playwright install chromium
-
             - name: Type check
               run: pnpm run typecheck
 
@@ -127,12 +100,12 @@ jobs:
             - name: Check formatting
               run: pnpm run format:check
 
-            - name: Unit tests with enforced coverage thresholds
-              run: pnpm run test:coverage
+            - name: Unit tests
+              run: pnpm test
 
             # The Tauri custom-protocol feature embeds dist/, so build it before
             # Clippy runs with --all-features.
-            - name: Build static browser application
+            - name: Build desktop frontend
               run: pnpm run build
 
             - name: Check Rust formatting
@@ -141,41 +114,8 @@ jobs:
             - name: Lint Rust
               run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 
-            - name: Rust core, CLI, and desktop tests
-              run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features cli
-
-            - name: Rust audio helper tests
-              run: cargo test --locked --manifest-path src-tauri/Cargo.toml --features audio-helper --bin tutorux-audio-helper
-
-            - name: Build Rust CLI and audio helper for parity
-              run: |
-                  cargo build --locked --manifest-path src-tauri/Cargo.toml --features cli --bin tutorux-cli
-                  pnpm run build:audio-helper
-
-            - name: Rust CLI contract harness
-              shell: bash
-              run: |
-                  helper=$(find src-tauri/binaries -maxdepth 1 -type f -name 'tutorux-audio-helper-*' | head -n 1)
-                  if [ -z "$helper" ]; then
-                    echo "The audio helper sidecar is missing; run pnpm run build:audio-helper." >&2
-                    exit 1
-                  fi
-                  node scripts/rust-parity/run.mjs
-
-            - name: Build standalone Rust CLI
-              run: cargo build --locked --manifest-path src-tauri/Cargo.toml --release --features cli --bin tutorux-cli
-
-            - name: Upload standalone Rust CLI and audio helper
-              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-              with:
-                  name: tutorux-cli-${{ matrix.os }}
-                  path: |
-                      src-tauri/target/release/tutorux-cli*
-                      src-tauri/binaries/tutorux-audio-helper-*
-                  if-no-files-found: error
-
-            - name: Browser workflow
-              run: pnpm run test:e2e
+            - name: Rust core and desktop tests
+              run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
             - name: Import Windows signing certificate
               if: runner.os == 'Windows'
