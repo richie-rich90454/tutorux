@@ -52,9 +52,16 @@ The bundled multilingual Whisper Base Q5_1 model runs in the desktop process. Th
 
 Transcription is a review workflow: generated cues remain unverified until the user edits or marks them reviewed.
 
+A regression test transcribes the JFK sample fixture and asserts the returned text. WAV parsing accepts `fmt ` and `data` chunks in any order and tolerates encoder metadata chunks. The vendored `whisper-rs` abort callback was fixed to keep the boxed callback alive and call the correct trait object; the old pointer cast caused real-speech encodes to fail.
+
+## OCR path
+
+OCR is a separate local model path, not an LLM. `src-tauri/src/ocr.rs` loads embedded Ocrs detection and recognition models and extracts text from image materials. The text is stored on the material and indexed for FTS5 search.
+
 ## What is not covered
 
 - Cloud providers were not exercised with live keys in this environment.
 - Local GGUF generation was not exercised with a real GGUF file in this environment.
-- Real spoken-audio transcription through the UI needs a fixture.
+- Live OAuth calendar connections were not exercised with registered client credentials.
+- Scanned PDF OCR is not implemented.
 - Provider-specific retry and streaming edge cases require provider qualification.
