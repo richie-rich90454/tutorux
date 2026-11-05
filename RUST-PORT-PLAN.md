@@ -12,11 +12,20 @@ The custom archive engine and CLI port are retired. Rust now owns the SQLite wor
 - Optional SQLCipher encryption.
 - Passphrase unlock and rekey.
 - Encrypted backup and integrity check.
+- Compaction, reindexing, recovery copies, and sanitized copies.
+- Session package export/import.
+- Multi-track recording storage and a local mixer.
+- Evidence links and graph.
+- Reminders.
+- Image OCR with embedded models.
+- Google/Microsoft OAuth and Apple CalDAV sync.
 - Tauri command surface.
 - Desktop release build.
 - Embedded Whisper and local GGUF paths.
 - Reviewed cloud AI transport.
 - `.tutor` launch association and single-instance handoff.
+- Real Whisper speech and OCR text fixtures.
+- 1 GiB synthetic workspace qualification.
 
 ## Follow-up work
 
@@ -24,14 +33,11 @@ The custom archive engine and CLI port are retired. Rust now owns the SQLite wor
 2. Move recording chunk persistence into the native capture worker.
 3. Add windowed Whisper transcription instead of one large WAV payload.
 4. Add keyset pagination for transcripts and materials.
-5. Add repair, compaction, and recovery UI for SQLite maintenance.
-6. Add sanitized workspace copies.
-7. Add session package import/export.
-8. Add Google/Outlook/macOS Calendar OAuth.
-9. Add reminders.
-10. Add OCR.
-11. Add a 100 GB synthetic workload and Criterion benchmarks.
-12. Qualify macOS/Linux capture and installer signing.
+5. Add PDF page rendering for OCR.
+6. Add salvage from physically corrupted SQLite files.
+7. Add live qualification for OAuth/CalDAV accounts, cloud keys, and local GGUF models.
+8. Add a 100 GB synthetic workload and Criterion benchmarks.
+9. Qualify mobile hardware capture, macOS/Linux capture, and installer signing.
 
 ## Non-goals
 
