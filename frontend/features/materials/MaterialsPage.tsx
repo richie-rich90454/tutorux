@@ -35,6 +35,7 @@ export function MaterialsPage(): JSX.Element {
         mimeType: string;
     } | null>(null);
     const [loading, setLoading] = createSignal("");
+    const [message, setMessage] = createSignal("");
     const [sessions] = createResource(() => sessionsApi.list(null, null, 500));
     const [materials, { refetch }] = createResource(
         () => ({ query: query(), sessionId: sessionId() }),
@@ -101,7 +102,31 @@ export function MaterialsPage(): JSX.Element {
         }
     }
 
+    async function extractText(material: Material): Promise<void> {
+        setError("");
+        setMessage("");
+        setLoading(material.id);
+        try {
+            const updated = await materialsApi.ocr(material.id);
+            setMessage(
+                updated.extractedText
+                    ? `Extracted ${updated.extractedText.length} characters from ${updated.filename}.`
+                    : `No text was found in ${updated.filename}.`,
+            );
+            await refetch();
+        } catch (cause) {
+            setError(errorMessage(cause));
+        } finally {
+            setLoading("");
+        }
+    }
+
     const visible = (): Material[] => materials() ?? [];
+    const previewText = (): string => {
+        const current = preview();
+        if (!current) return "";
+        return (materials() ?? []).find((item) => item.id === current.id)?.extractedText ?? "";
+    };
 
     return (
         <div class="mx-auto w-full max-w-[1240px] px-5 py-5 sm:px-7 lg:px-9">
@@ -121,6 +146,11 @@ export function MaterialsPage(): JSX.Element {
             <Show when={error()}>
                 <div class="mb-4">
                     <InlineNotice tone="danger">{error()}</InlineNotice>
+                </div>
+            </Show>
+            <Show when={message()}>
+                <div class="mb-4">
+                    <InlineNotice tone="success">{message()}</InlineNotice>
                 </div>
             </Show>
             <Show when={showLink()}>
@@ -245,6 +275,20 @@ export function MaterialsPage(): JSX.Element {
                                         <Show when={material.kind === "link"}>
                                             <Badge>link</Badge>
                                         </Show>
+                                        <Show when={material.extractedText}>
+                                            <Badge tone="success">text extracted</Badge>
+                                        </Show>
+                                        <Show when={material.mimeType.startsWith("image/")}>
+                                            <Button
+                                                size="sm"
+                                                onClick={() => void extractText(material)}
+                                                disabled={loading() === material.id}
+                                            >
+                                                {loading() === material.id
+                                                    ? "Reading…"
+                                                    : "Extract text"}
+                                            </Button>
+                                        </Show>
                                         <Button
                                             size="sm"
                                             onClick={() => void open(material)}
@@ -321,6 +365,16 @@ export function MaterialsPage(): JSX.Element {
                                         This file type has no in-app preview. It is stored safely in
                                         the workspace.
                                     </p>
+                                </Show>
+                                <Show when={previewText()}>
+                                    <div class="mt-3 border-t border-line-soft pt-3">
+                                        <strong class="text-[11px] text-muted">
+                                            Extracted text
+                                        </strong>
+                                        <pre class="mt-1 max-h-[30vh] whitespace-pre-wrap overflow-auto text-xs leading-relaxed text-ink-soft">
+                                            {previewText()}
+                                        </pre>
+                                    </div>
                                 </Show>
                             </div>
                         )}
