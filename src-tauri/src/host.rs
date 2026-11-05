@@ -37,6 +37,7 @@ pub fn run() {
             },
         ))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let current_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             if let Some(path) = archive_launch_path(
@@ -113,6 +114,13 @@ pub fn run() {
             store::material_update,
             store::material_delete,
             store::material_read,
+            store::material_ocr,
+            store::recordings_list,
+            store::recording_import,
+            store::recording_import_tracks,
+            store::recording_read,
+            store::recording_read_track,
+            store::recording_delete,
             store::guides_list,
             store::guide_get,
             store::guide_create,
@@ -122,6 +130,9 @@ pub fn run() {
             store::evidence_create,
             store::evidence_update,
             store::evidence_delete,
+            store::evidence_graph,
+            store::evidence_link_create,
+            store::evidence_link_delete,
             store::goals_list,
             store::goal_upsert,
             store::goal_delete,
@@ -138,6 +149,20 @@ pub fn run() {
             store::setting_set,
             store::backup_create,
             store::workspace_check,
+            store::workspace_compact,
+            store::workspace_reindex,
+            store::workspace_recovery_copy,
+            store::workspace_sanitized_copy,
+            store::session_package_export,
+            store::session_package_import,
+            store::reminders_due,
+            store::calendar_client_status,
+            store::calendar_save_client,
+            store::calendar_accounts,
+            store::calendar_connect,
+            store::calendar_connect_caldav,
+            store::calendar_sync,
+            store::calendar_disconnect,
             diagnostics::get_desktop_diagnostics,
             credentials::ai_credential_store_available,
             credentials::has_ai_credential,
