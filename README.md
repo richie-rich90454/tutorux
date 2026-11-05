@@ -66,22 +66,27 @@ See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive
 
 - Today, Students, Sessions, Schedule, Materials, Guides, Evidence, Assistant, Archive, and Settings.
 - Session detail with Overview, Capture, Transcript, Notes, Materials, Evidence, and Guide tabs.
-- Microphone recording with optional system-audio mixing, local playback, and local Whisper transcription.
+- Microphone recording with optional system audio, separate microphone/system tracks, a local mixer, file-based audio import, and local Whisper transcription.
+- Evidence records, approval, timelines, and a linked evidence graph.
 - Cloud AI through reviewed native transports, plus local GGUF inference and an embedded Whisper model.
 - Global FTS5 search with `Ctrl/Cmd+K`.
 - Global goals, skill ratings, evidence timelines, and printable progress reports.
-- ICS calendar import/export and recurring schedule-to-session materialization.
+- ICS calendar import/export, recurring schedule-to-session materialization, reminder notifications, and Google/Microsoft/Apple CalDAV calendar sync.
+- Image OCR with the bundled OCR engine for PNG, JPEG, WebP, BMP, TIFF, and GIF materials.
+- Session packages (`.tutorpkg`) that transfer one session, its student, notes, evidence, guides, materials, and recordings.
+- Archive compaction, search reindexing, recovery copies, and sanitized copies.
 - Manual workspace backups that preserve encryption.
-- Optional SQLCipher workspace encryption and OS credential-store AI keys.
+- Optional SQLCipher workspace encryption and OS credential-store AI/calendar credentials.
 
 ## Deliberate limits
 
-- Google Calendar and Outlook OAuth are not configured in this build. ICS import/export is available.
-- OCR for scanned worksheets is deferred.
-- The mobile layout is responsive but mobile-qualified capture is deferred.
-- Advanced archive repair, compaction, recovery, sanitized copies, and session packages are not exposed in the new UI.
-- The evidence graph view is not implemented; evidence records and timelines are.
-- A 100 GB qualification run has not been performed yet.
+- Google Calendar and Outlook OAuth require desktop OAuth client credentials from the provider. Apple Calendar uses CalDAV with an app-specific password. Live provider qualification is not included in the test environment.
+- OCR reads image materials. Scanned PDF pages must be converted to images before OCR.
+- The mobile layout is responsive and supports file-based audio attachment, but device-qualified mobile capture has not been run.
+- Archive recovery creates a verified copy of a healthy workspace. It does not salvage individual rows from a physically corrupted SQLite file.
+- The evidence graph shows links; automated graph analytics are not included.
+- A 1 GiB synthetic workspace qualification passes. The full 100 GB qualification has not been run.
+- Live cloud AI, local GGUF generation, OAuth calendar connections, and real capture-device matrices require external credentials, models, or hardware.
 
 ## Documentation
 
@@ -99,3 +104,5 @@ See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive
 ## License
 
 Tutorux is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
+
+The bundled OCR models are from the Ocrs project, trained on the HierText dataset by Google Research, and licensed under CC BY-SA 4.0. The attribution is in [src-tauri/resources/ocr/LICENSE.md](src-tauri/resources/ocr/LICENSE.md).
