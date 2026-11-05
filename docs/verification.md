@@ -1,94 +1,71 @@
-# Verification status
+# Verification
 
-Last verified: 2026-11-04 · Windows 11 · Node 24 · pnpm 12 · Rust stable
+Current verification is focused on the SQLite workspace store, the new SolidJS shell, and the desktop release path.
 
-## Scope
+## Last verified result
 
-The 2026-11-04 production audit ledger is in `docs/engineering/production-audit/`. It records the corrected defects, their regressions, and the remaining external verification limits.
-
-Measured coverage applies to every first-party TypeScript module under `frontend/` (`frontend/**/*.ts`, including `frontend/platform/tauri.ts`). Declaration files are the only exclusion. There are no coverage-ignore comments, file exclusions, skipped tests, or test-only production branches.
-
-React-style `.tsx` SolidJS components and `index.html` are presentation code exercised by the Playwright end-to-end suite (`tests/e2e`, 36 tests in 21 files) and the static Tailwind-class guard. `pnpm run test:e2e` also collects real V8 coverage from the browser run, maps it back through the production source maps, and enforces floors over every first-party module in the web bundle (currently 48% statements, 34% branches, 58% functions, 48% lines). The remaining uncovered code is dominated by desktop-only adapters, hardware capture, and network-failure paths that the browser cannot execute; those are covered by the Rust flow tests and the 100% unit suite. The E2E coverage floors are a ratchet: raise them when the suite earns more coverage, never lower them.
-
-## Commands and results
-
-| Command | Result |
+| Check | Result |
 | --- | --- |
-| `pnpm run typecheck` | pass |
-| `pnpm run lint` | pass |
-| `pnpm run format:check` | pass |
-| `pnpm run test:coverage` | **100% statements, branches, functions, lines** |
-| `pnpm exec vitest run` | 111 files, 2130 tests pass |
-| `pnpm exec playwright test` | 35 pass |
-| `cargo fmt --check` | pass |
-| `cargo clippy --all-targets --all-features --locked -D warnings` | pass |
-| `cargo test --all-features --locked` | 246 lib + 8 helper pass |
-| `node scripts/rust-parity/run.mjs` | 47/47 cases, 218 capabilities, 0 missing |
-| `pnpm audit --audit-level high` | no known vulnerabilities |
-| `pnpm run build` | pass |
-| `pnpm run desktop:build` | MSI, NSIS, portable EXE built |
+| `pnpm run typecheck` | Pass |
+| `pnpm run lint` | Pass |
+| `pnpm run format:check` | Pass |
+| `pnpm run test:coverage` | Pass; 100% statements, branches, functions, and lines |
+| `pnpm run build` | Pass; desktop frontend built |
+| `cargo fmt --check` | Pass |
+| `cargo clippy --all-targets --all-features -- -D warnings` | Pass |
+| `cargo test --lib` | 55 passed |
+| `pnpm exec tauri build --no-bundle` | Pass |
+| Release application smoke test | Pass; embedded assets loaded from `https://tauri.localhost` |
 
-Coverage totals from the last run: 15,273 statements, 11,456 branches, 1,849 functions, 13,879 lines, all covered. Thresholds are enforced in `vite.config.ts` and CI runs `pnpm run test:coverage`.
+## Frontend coverage
 
-## Action traceability
+The coverage include list is intentionally limited to the pure modules with unit coverage:
 
-| Area | Primary verification |
-| --- | --- |
-| Archive create/open/save/reopen, corruption, repair, compaction, encryption/re-key, trash purge, recovery | `tests/frontend/archive/*` (26 files), `archive-fuzz.test.ts` (1,000 mutations + 500 random streams) |
-| Archive/CLI contract | `tests/rust-parity/corpus/*`, `src-tauri/src/core/capability/registry.rs`, Rust tests |
-| Session and record lifecycle, student progress, guides, journal, evidence | `tests/frontend/domain/{records,session-*,student-progress,guides,evidence,journal-trash}*` |
-| Recording state machine, microphone/system audio, waveform, native recovery | `tests/frontend/domain/{synchronized-recording,microphone-recording,native-recording-recovery,waveform-index}*`, `tests/frontend/platform/synchronized-audio*` |
-| WAV parsing/recovery, audio mixing, asset streaming | `tests/frontend/domain/{wav,wav-recovery,audio,audio-mix,assets,assets-stream,asset-waveform}*` |
-| DOCX/PDF extraction and export | `tests/frontend/domain/{document-text,guide-pdf,guide-export,document-export}*` |
-| AI providers, request/response, budgets, cancellation, attachment integrity | `tests/frontend/ai/*` (16 files) |
-| Keyboard shortcuts, markdown editing, piece table undo/redo | `tests/frontend/domain/{keyboard-shortcuts,markdown-shortcuts,piece-table}*`, `piece-table.property.test.ts` |
-| Desktop adapter (Tauri commands, checkpointing, exports) | `tests/frontend/platform/tauri.test.ts` |
-| Browser adapter, audio capture, embedded AI, compressed import | `tests/frontend/platform/*` |
-| UI actions, navigation, dialogs, responsive layout, date picker | `tests/e2e/*`, `tests/frontend/tailwind-classes.test.ts` |
+- `frontend/app/router.ts`
+- `frontend/shared/format.ts`
 
-## Dead-code removals
+UI components are exercised through runtime smoke checks in the Tauri WebView. Adding a Vitest JSX test harness is recommended before expanding the pure-module surface.
 
-Coverage closure required removing branches that could not execute. Each removal relies on an invariant enforced earlier in the same call path; no trust-boundary validation reachable from untrusted archive, document, or provider data was removed (those are covered by fixtures).
+## Store tests
 
-Representative removals:
+`src-tauri/src/store/tests.rs` covers:
 
-- `archive/archive.ts` — duplicate commit/revision lineage checks in `verifyArchiveHistory` (already enforced by `verifyArchiveFull`), index writer shape checks guaranteed by `encodeIndexPage`, source-wrapper bounds already validated by the composite wrapper, UUID encoding fallbacks for internally generated IDs.
-- `archive/format.ts` — LZ4 generation wrap replaced with a monotonic counter; decoder growth check unreachable because callers clamp the target.
-- `domain/audio.ts`, `document-text.ts`, `wav.ts` — format switches made exhaustive over validated unions; manual bounds checks replaced with native `DataView` range errors.
-- `domain/session-packages.ts`, `student-progress.ts`, `synchronized-recording.ts` — guards that restated an upstream validation on the same data.
-- `ai/request.ts`, `replicate.ts`, `response.ts` — provider dispatch converted to maps with the provider validated at the preview boundary; duplicate size checks removed where the same declared sizes were already summed.
-- `platform/tauri.ts` — `split(".").at(-1)` fallbacks, which cannot be undefined.
+- student, session, journal, and observation creation;
+- FTS5 search over journal content;
+- recurring schedule materialization;
+- material chunk import and readback;
+- compressed blob round-trip;
+- encrypted workspace creation and passphrase-gated reopening.
 
-## Defects found and corrected during this pass
+Additional Rust tests cover the AI transport boundary, credentials, embedded GGUF metadata, Whisper parsing, synchronized capture, and desktop export.
 
-1. The manifest-attachment test claimed to exercise metadata without `record_role` but passed the unmodified record array to the snapshot; the modified record is now substituted before the preview, and the fallback branch is genuinely executed.
-2. The browser PDF.js branch could not execute under the Node transform because the module-level `let` was constant-folded. The worker source now lives in a small state object, so both the Node legacy build and the browser build are exercised.
-3. The PDF page-limit and worker-source branches had no tests; both now have behavioral tests (513-page fixture, browser fixture with a mocked PDF.js module).
-4. Document block actions were 24 px wide while their "Split" and "Merge" labels were wider, so the labels overflowed into each other. The buttons now size to their labels, the header wraps when narrow, and an E2E test checks text fit, button separation, and page overflow at 1440 px and 390 px.
-5. The desktop save path compared a destination identity captured before staging against the destination at publication, and each authorization token carried its own identity copy. A concurrent Tutorux save, a re-authorization, or a recording checkpoint could therefore leave a stale identity and report a false "archive changed outside Tutorux" conflict. Identities are now stored once per canonical path and shared by every token; preparation no longer rejects on identity, publication compares against the path identity and accepts an identical re-publication, failed checkpoints roll back to their previous size, and Windows handles are compared by volume/file ID instead of timestamps. Rust regression tests cover the accepted Tutorux advance, stale tokens, idempotent re-publication, and the rejected foreign change; a platform test asserts save/checkpoint ordering.
-6. Recording playback requested the entire track and failed above the 32 MiB preview limit. Playback now loads a 30-second window from the start or the selected cue, matching the UI copy and working for long recordings.
-7. CI failed before any check because `pnpm/action-setup` pinned `version: 12` while `package.json` pins `packageManager: pnpm@12.14.0`. The action now reads the package manager field only.
-8. Windows archive creation succeeded, but opening the new archive failed with `Could not verify archive contents: ... (os error 33)`, and saves could report the same "changed outside" conflict. Windows byte-range locks are mandatory, so hashing the archive through a second handle while the lock was held raised `ERROR_LOCK_VIOLATION`; the save path mapped that error to the conflict message. Authorization, preparation, publication, and recording checkpoints now hash and read only through the handle that owns the lock; the replacement handle is adopted before hashing the published file. A windowless Rust flow test now runs the exact create → authorize → save → re-authorize → save-through-a-stale-token sequence against the real lock registry, so this class of defect cannot return without failing `cargo test`.
+## Runtime smoke checks
 
-## Unverified environment
+The following were exercised in the Tauri WebView during implementation:
 
-- macOS and Linux runtime was not exercised locally; Windows installers were rebuilt locally and cross-platform packaging remains a CI responsibility.
-- Real microphone, system-audio capture, and Whisper hardware were not exercised; the suites use deterministic browser/device fakes.
-- Signing and notarization still require repository secrets; tagged releases fail fast without them.
-- `.tsx` rendering branches are covered behaviorally by E2E, not by line coverage.
-- Browser E2E coverage is enforced as a ratchet over the web bundle; desktop-only adapters and hardware capture are covered by Rust and unit tests instead.
+- create/open a plain workspace;
+- create an encrypted workspace;
+- reopen an encrypted workspace through the unlock panel;
+- change a workspace passphrase;
+- create a student;
+- start a session;
+- add journal and observation records;
+- add a transcript cue;
+- generate and edit a study guide;
+- import a material and preview text;
+- create a recurring schedule and see generated sessions on Today;
+- search across students and notes with `Ctrl+K`;
+- verify database integrity;
+- inspect Trash and restore a student;
+- build and launch the release binary with embedded assets.
 
-## Reproduce
+## Not yet automated
 
-```sh
-pnpm install --frozen-lockfile
-pnpm run typecheck
-pnpm run lint
-pnpm run format:check
-pnpm run test:coverage
-pnpm exec playwright test
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features --locked -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml --all-features --locked
-node scripts/rust-parity/run.mjs
-```
+- Google Calendar and Outlook OAuth.
+- Real spoken-audio UI transcription with a fixture.
+- Cloud AI provider calls with real keys.
+- Local GGUF generation with a real model.
+- 100 GB synthetic workspace qualification.
+- macOS/Linux device capture matrices.
+- OCR.
+- A dedicated Tauri UI automation suite.
