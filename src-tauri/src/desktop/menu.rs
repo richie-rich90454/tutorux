@@ -5,14 +5,14 @@ pub(crate) fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn st
     let open_archive = MenuItem::with_id(
         handle,
         "archive.open",
-        "Open Archive…",
+        "Open Workspace…",
         true,
         Some("CmdOrCtrl+O"),
     )?;
     let save_archive = MenuItem::with_id(
         handle,
         "archive.save",
-        "Save Archive",
+        "Save Workspace",
         true,
         Some("CmdOrCtrl+S"),
     )?;
@@ -26,7 +26,7 @@ pub(crate) fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn st
     let preferences = MenuItem::with_id(
         handle,
         "app.preferences",
-        "Preferences…",
+        "Settings…",
         true,
         Some("CmdOrCtrl+,"),
     )?;
@@ -71,7 +71,6 @@ pub(crate) fn install_native_menu(app: &mut tauri::App) -> Result<(), Box<dyn st
         true,
         &[&quick_actions, &toggle_appearance, &preferences],
     )?;
-
     #[cfg(target_os = "macos")]
     let app_menu = Submenu::with_items(
         handle,
