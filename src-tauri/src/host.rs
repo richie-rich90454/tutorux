@@ -2,17 +2,17 @@ use std::path::{Path, PathBuf};
 
 use tauri::{Emitter, Manager};
 
-use crate::console::ConsoleState;
 use crate::desktop::{archive_launch_path, install_native_menu, DesktopState};
+use crate::store::WorkspaceState;
 use crate::{
-    ai_transport, audio_import, credentials, diagnostics, embedded_ai, live_transcription,
-    platform, transcription,
+    ai_transport, credentials, diagnostics, embedded_ai, live_transcription, platform, store,
+    transcription,
 };
 
 pub fn run() {
     tauri::Builder::default()
         .manage(DesktopState::default())
-        .manage(ConsoleState::default())
+        .manage(WorkspaceState::default())
         .manage(embedded_ai::EmbeddedAiState::default())
         .manage(platform::audio_capture::AudioCaptureState::default())
         .manage(platform::synchronized_audio::SynchronizedAudioCaptureState::default())
@@ -37,7 +37,6 @@ pub fn run() {
             },
         ))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let current_directory = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
             if let Some(path) = archive_launch_path(
@@ -72,11 +71,74 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            store::workspace_create,
+            store::workspace_open,
+            store::workspace_close,
+            store::workspace_summary,
+            store::workspace_rename,
+            store::workspace_rekey,
+            store::today_data,
+            store::students_list,
+            store::student_get,
+            store::student_create,
+            store::student_update,
+            store::student_delete,
+            store::student_detail,
+            store::sessions_list,
+            store::session_get,
+            store::session_create,
+            store::session_update,
+            store::session_delete,
+            store::session_start,
+            store::session_detail,
+            store::schedule_list,
+            store::schedule_create,
+            store::schedule_update,
+            store::schedule_delete,
+            store::journal_list,
+            store::journal_create,
+            store::journal_update,
+            store::journal_delete,
+            store::observations_list,
+            store::observation_create,
+            store::observation_update,
+            store::observation_delete,
+            store::cues_list,
+            store::cue_create,
+            store::cue_update,
+            store::cue_delete,
+            store::materials_list,
+            store::material_import,
+            store::material_link,
+            store::material_update,
+            store::material_delete,
+            store::material_read,
+            store::guides_list,
+            store::guide_get,
+            store::guide_create,
+            store::guide_update,
+            store::guide_delete,
+            store::evidence_list,
+            store::evidence_create,
+            store::evidence_update,
+            store::evidence_delete,
+            store::goals_list,
+            store::goal_upsert,
+            store::goal_delete,
+            store::skills_list,
+            store::skill_upsert,
+            store::skill_delete,
+            store::search_global,
+            store::trash_list,
+            store::trash_restore,
+            store::trash_delete,
+            store::trash_empty,
+            store::trash_purge_expired,
+            store::settings_all,
+            store::setting_set,
+            store::backup_create,
+            store::workspace_check,
             diagnostics::get_desktop_diagnostics,
-            audio_import::import_compressed_audio,
-            crate::console::command_console_availability,
-            crate::console::run_command_console,
-            crate::console::cancel_command_console,
             credentials::ai_credential_store_available,
             credentials::has_ai_credential,
             credentials::save_ai_credential,
@@ -87,12 +149,6 @@ pub fn run() {
             embedded_ai::embedded_model_status,
             embedded_ai::generate_embedded_text,
             embedded_ai::cancel_embedded_generation,
-            crate::desktop::archive::authorize_archive_path,
-            crate::desktop::archive::close_archive,
-            crate::desktop::archive::read_archive_range,
-            crate::desktop::save::prepare_archive_save,
-            crate::desktop::save::publish_archive_save,
-            crate::desktop::save::cancel_archive_save,
             crate::desktop::launch::take_pending_open_archive,
             crate::desktop::export::write_export_file,
             ai_transport::send_ai_request,
@@ -107,7 +163,6 @@ pub fn run() {
             live_transcription::cancel_live_whisper,
             live_transcription::finish_live_whisper,
             live_transcription::end_live_whisper,
-            crate::desktop::append::append_audio_archive_generation,
             platform::audio_capture::begin_audio_capture,
             platform::audio_capture::append_audio_capture_chunk,
             platform::audio_capture::pause_audio_capture,
