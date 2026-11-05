@@ -72,19 +72,12 @@ pub(super) fn validate_selected_path(path: &Path) -> Result<PathBuf, String> {
 
 const GGUF_MAX_STRING_BYTES: u64 = 16 * 1024 * 1024;
 const GGUF_MAX_METADATA_ENTRIES: u64 = 1_000_000;
-const GGUF_MEMORY_OVERHEAD_BYTES: u128 = 256 * 1024 * 1024;
 
 #[derive(Clone, Debug)]
 pub(crate) struct GgufMetadata {
-    pub(crate) gguf_version: u32,
     pub(crate) tensor_count: u64,
-    pub(crate) metadata_count: u64,
     pub(crate) architecture: String,
     pub(crate) name: String,
-    pub(crate) description: String,
-    pub(crate) training_context_tokens: String,
-    pub(crate) embedding_length: String,
-    pub(crate) layer_count: String,
 }
 
 /// Read GGUF header metadata without requiring tensor information. Tensor-only
@@ -160,56 +153,11 @@ pub(crate) fn read_gguf_metadata(path: &Path) -> Result<GgufMetadata, String> {
         .get("general.architecture")
         .cloned()
         .unwrap_or_default();
-    let unsigned = |key: String| {
-        integers
-            .get(&key)
-            .filter(|value| **value >= 0)
-            .map(i128::to_string)
-            .unwrap_or_default()
-    };
     Ok(GgufMetadata {
-        gguf_version: version,
         tensor_count,
-        metadata_count,
-        training_context_tokens: unsigned(format!("{architecture}.context_length")),
-        embedding_length: unsigned(format!("{architecture}.embedding_length")),
-        layer_count: unsigned(format!("{architecture}.block_count")),
         name: strings.get("general.name").cloned().unwrap_or_default(),
-        description: strings
-            .get("general.description")
-            .cloned()
-            .unwrap_or_default(),
         architecture,
     })
-}
-
-pub(crate) fn estimate_gguf_memory(
-    file_size: u64,
-    embedding_length: &str,
-    layer_count: &str,
-    context_tokens: u64,
-) -> Result<(String, bool), String> {
-    let embedding = embedding_length.parse::<u128>().unwrap_or(0);
-    let layers = layer_count.parse::<u128>().unwrap_or(0);
-    if file_size == 0 || embedding == 0 || layers == 0 {
-        return Err(
-            "Memory estimation requires a GGUF inspection with dimensions and file size."
-                .to_owned(),
-        );
-    }
-    let context_bytes = u128::from(context_tokens)
-        .checked_mul(embedding)
-        .and_then(|value| value.checked_mul(layers))
-        .and_then(|value| value.checked_mul(4))
-        .unwrap_or(u128::MAX);
-    let total = u128::from(file_size)
-        .checked_add(context_bytes)
-        .and_then(|value| value.checked_add(GGUF_MEMORY_OVERHEAD_BYTES))
-        .unwrap_or(u128::MAX);
-    if total > u128::from(u64::MAX) {
-        return Ok((u64::MAX.to_string(), true));
-    }
-    Ok(((total as u64).to_string(), false))
 }
 
 struct GgufReader {
@@ -494,6 +442,5 @@ mod tests {
         std::fs::remove_file(&path).ok();
         assert_eq!(metadata.tensor_count, 0);
         assert_eq!(metadata.architecture, "llama");
-        assert_eq!(metadata.layer_count, "32");
     }
 }
