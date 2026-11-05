@@ -19,8 +19,8 @@ pnpm exec tauri build --no-bundle
 
 ```text
 frontend/
-  api/                 typed Tauri client, AI transport, Whisper bridge
-  app/                 shell, routing, workspace provider, welcome
+  api/                 typed Tauri client, AI transport, Whisper bridge, calendar/OCR calls
+  app/                 shell, routing, workspace provider, welcome, reminder watcher
   design-system/       primitives and shared presentation
   features/            Today, Students, Sessions, Schedule, Materials,
                        Guides, Evidence, Assistant, Archive, Settings
@@ -57,7 +57,8 @@ Use `navigate`, `sessionPath`, `studentPath`, and `guidePath` instead of assigni
 ## State
 
 - `WorkspaceProvider` owns the open workspace summary, theme, Simple/Advanced mode, saved path, and unlock prompt.
-- `frontend/api/client.ts` owns all workspace commands.
+- `ReminderWatcher` polls due lessons while a workspace is open and sends native notifications.
+- `frontend/api/client.ts` owns all workspace, calendar, reminder, and OCR commands.
 - Pages use `createResource` for reads and explicit refetch after mutations.
 - The backend is the source of truth. Do not duplicate persistent data in a global client store.
 - Avoid module-level mutable state except the router signal and the workspace provider.
@@ -105,6 +106,7 @@ Dates are Unix milliseconds. Transcript timestamps are microseconds. Use `fronte
 - Pure helpers: Vitest.
 - Router: jsdom + Vitest.
 - Rust store: `cargo test --lib`.
+- Local inference, OCR, calendar parsing, and audio fixtures: Rust unit tests.
 - UI: runtime smoke checks through the Tauri WebView; a dedicated Playwright/Tauri harness is not part of this build.
 - Before handing off, run typecheck, lint, format check, coverage, frontend build, Rust formatting, Clippy, and Rust tests.
 
