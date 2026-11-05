@@ -15,7 +15,8 @@ Current verification is focused on the SQLite workspace store, the new SolidJS s
 | `cargo clippy --all-targets --all-features -- -D warnings` | Pass |
 | `cargo test --lib` | 55 passed |
 | `pnpm exec tauri build --no-bundle` | Pass |
-| Release application smoke test | Pass; embedded assets loaded from `https://tauri.localhost` |
+| `pnpm run desktop:build` | Pass; MSI, NSIS setup, and portable EXE collected under `release/` |
+| Release application smoke test | Pass; all ten routes loaded with zero page errors |
 
 ## Frontend coverage
 
@@ -41,12 +42,14 @@ Additional Rust tests cover the AI transport boundary, credentials, embedded GGU
 
 ## Runtime smoke checks
 
-The following were exercised in the Tauri WebView during implementation:
+The following were exercised in the Tauri WebView during implementation and against the packaged 1.0.0 binary:
 
 - create/open a plain workspace;
 - create an encrypted workspace;
+- reject a wrong passphrase;
 - reopen an encrypted workspace through the unlock panel;
-- change a workspace passphrase;
+- change a workspace passphrase and reject the old one;
+- create a manual backup for plain and encrypted workspaces;
 - create a student;
 - start a session;
 - add journal and observation records;
@@ -57,7 +60,8 @@ The following were exercised in the Tauri WebView during implementation:
 - search across students and notes with `Ctrl+K`;
 - verify database integrity;
 - inspect Trash and restore a student;
-- build and launch the release binary with embedded assets.
+- load every route with zero page errors;
+- build, package, and launch the release binary with embedded assets.
 
 ## Not yet automated
 
