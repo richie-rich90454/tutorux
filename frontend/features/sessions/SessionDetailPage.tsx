@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import {
     chooseMaterialFiles,
+    chooseSessionPackageExport,
     chooseTextExport,
     cues as cuesApi,
     errorMessage,
@@ -207,29 +208,66 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
     const [elapsed, setElapsed] = createSignal(0);
     const [error, setError] = createSignal("");
     const [message, setMessage] = createSignal("");
-    const [playback, setPlayback] = createSignal<{ id: string; url: string } | null>(null);
-    let recorder: MediaRecorder | undefined;
+    const [mixer, setMixer] = createSignal<{
+        id: string;
+        tracks: Array<{ name: string; bytes: number[]; gain: number; muted: boolean }>;
+    } | null>(null);
+    const [playing, setPlaying] = createSignal(false);
+    let trackRecorders: Array<{ track: string; recorder: MediaRecorder; done: Promise<Blob> }> = [];
     let streams: MediaStream[] = [];
     let audioContext: AudioContext | undefined;
-    let chunks: Blob[] = [];
+    let mixerContext: AudioContext | undefined;
+    let mixerSources: AudioBufferSourceNode[] = [];
+    const mixerGains = new Map<string, GainNode>();
     let timer = 0;
     let startedAt = 0;
+    let audioFileInput: HTMLInputElement | undefined;
 
     onCleanup(() => {
         window.clearInterval(timer);
         streams.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
         void audioContext?.close();
-        const active = playback();
-        if (active) URL.revokeObjectURL(active.url);
+        stopMixer();
     });
+
+    function stopMixer(): void {
+        mixerSources.forEach((source) => {
+            try {
+                source.stop();
+            } catch {
+                // A source that already ended cannot be stopped twice.
+            }
+        });
+        mixerSources = [];
+        mixerGains.clear();
+        void mixerContext?.close();
+        mixerContext = undefined;
+        setPlaying(false);
+    }
 
     function cleanup(): void {
         window.clearInterval(timer);
         timer = 0;
         streams.forEach((stream) => stream.getTracks().forEach((track) => track.stop()));
         streams = [];
+        trackRecorders = [];
         void audioContext?.close();
         audioContext = undefined;
+    }
+
+    function recordTrack(stream: MediaStream, track: string, mimeType: string) {
+        const recorder = new MediaRecorder(stream, { mimeType });
+        const chunks: Blob[] = [];
+        const done = new Promise<Blob>((resolve, reject) => {
+            recorder.ondataavailable = (event) => {
+                if (event.data.size > 0) chunks.push(event.data);
+            };
+            recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType }));
+            recorder.onerror = () =>
+                reject(new Error(`The ${track} recorder stopped unexpectedly.`));
+        });
+        recorder.start(1000);
+        return { track, recorder, done };
     }
 
     async function start(): Promise<void> {
@@ -249,6 +287,7 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
             audioContext = new AudioContext();
             const destination = audioContext.createMediaStreamDestination();
             audioContext.createMediaStreamSource(microphone).connect(destination);
+            let systemStream: MediaStream | null = null;
             if (includeSystem()) {
                 try {
                     const display = await navigator.mediaDevices.getDisplayMedia({
@@ -258,7 +297,7 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
                     streams.push(display);
                     const systemAudio = display.getAudioTracks();
                     if (systemAudio.length > 0) {
-                        const systemStream = new MediaStream(systemAudio);
+                        systemStream = new MediaStream(systemAudio);
                         audioContext.createMediaStreamSource(systemStream).connect(destination);
                     } else {
                         setMessage(
@@ -275,46 +314,10 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
             const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
                 ? "audio/webm;codecs=opus"
                 : "audio/webm";
-            recorder = new MediaRecorder(destination.stream, { mimeType });
-            chunks = [];
-            recorder.ondataavailable = (event) => {
-                if (event.data.size > 0) chunks.push(event.data);
-            };
-            recorder.onerror = () => {
-                setError("The recorder stopped unexpectedly.");
-                cleanup();
-                setState("idle");
-            };
-            recorder.onstop = () => {
-                void (async () => {
-                    setState("saving");
-                    try {
-                        const blob = new Blob(chunks, { type: mimeType });
-                        if (blob.size === 0)
-                            throw new Error("The recording did not contain any audio.");
-                        const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
-                        await recordingsApi.import({
-                            sessionId: props.detail.session.id,
-                            title: `${props.detail.session.title} · ${new Date().toLocaleString()}`,
-                            source: includeSystem() ? "microphone+system" : "microphone",
-                            sampleRate: 0,
-                            channels: 0,
-                            durationUs: elapsed() * 1_000_000,
-                            bytes,
-                        });
-                        setMessage("Recording saved to this session.");
-                        setElapsed(0);
-                        props.onChanged();
-                    } catch (cause) {
-                        setError(errorMessage(cause));
-                    } finally {
-                        cleanup();
-                        setState("idle");
-                    }
-                })();
-            };
+            trackRecorders = [recordTrack(destination.stream, "mixed", mimeType)];
+            trackRecorders.push(recordTrack(microphone, "microphone", mimeType));
+            if (systemStream) trackRecorders.push(recordTrack(systemStream, "system", mimeType));
             startedAt = Date.now();
-            recorder.start(1000);
             timer = window.setInterval(
                 () => setElapsed(Math.round((Date.now() - startedAt) / 1000)),
                 500,
@@ -326,23 +329,135 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
         }
     }
 
-    function stop(): void {
-        if (recorder && recorder.state !== "inactive") recorder.stop();
+    async function stop(): Promise<void> {
+        if (state() !== "recording") return;
         window.clearInterval(timer);
-    }
-
-    async function play(recording: Recording): Promise<void> {
-        setError("");
+        setState("saving");
+        const recorders = trackRecorders;
         try {
-            const bytes = await recordingsApi.read(recording.id);
-            const previous = playback();
-            if (previous) URL.revokeObjectURL(previous.url);
-            const url = URL.createObjectURL(
-                new Blob([Uint8Array.from(bytes)], { type: "audio/webm" }),
-            );
-            setPlayback({ id: recording.id, url });
+            recorders.forEach((item) => {
+                if (item.recorder.state !== "inactive") item.recorder.stop();
+            });
+            const blobs = await Promise.all(recorders.map((item) => item.done));
+            const sampleRate = audioContext?.sampleRate ?? 48_000;
+            const tracks = [];
+            for (const [index, item] of recorders.entries()) {
+                const blob = blobs[index];
+                if (!blob || blob.size === 0) continue;
+                tracks.push({
+                    track: item.track,
+                    sampleRate,
+                    channels: 1,
+                    bytes: Array.from(new Uint8Array(await blob.arrayBuffer())),
+                });
+            }
+            if (!tracks.length) throw new Error("The recording did not contain any audio.");
+            await recordingsApi.importTracks({
+                sessionId: props.detail.session.id,
+                title: `${props.detail.session.title} · ${new Date().toLocaleString()}`,
+                source: includeSystem() ? "microphone+system" : "microphone",
+                sampleRate,
+                channels: 1,
+                durationUs: elapsed() * 1_000_000,
+                tracks,
+            });
+            setMessage("Recording saved with separate microphone and system tracks.");
+            setElapsed(0);
+            props.onChanged();
         } catch (cause) {
             setError(errorMessage(cause));
+        } finally {
+            cleanup();
+            setState("idle");
+        }
+    }
+
+    async function loadMixer(recording: Recording): Promise<void> {
+        setError("");
+        stopMixer();
+        try {
+            const names = recording.tracks.length ? recording.tracks : ["mixed"];
+            const tracks = [];
+            for (const name of names) {
+                const bytes = recording.tracks.length
+                    ? await recordingsApi.readTrack(recording.id, name)
+                    : await recordingsApi.read(recording.id);
+                tracks.push({ name, bytes, gain: 100, muted: false });
+            }
+            setMixer({ id: recording.id, tracks });
+        } catch (cause) {
+            setError(errorMessage(cause));
+        }
+    }
+
+    function updateTrack(name: string, patch: { gain?: number; muted?: boolean }): void {
+        setMixer((current) =>
+            current
+                ? {
+                      ...current,
+                      tracks: current.tracks.map((track) =>
+                          track.name === name ? { ...track, ...patch } : track,
+                      ),
+                  }
+                : current,
+        );
+        const track = mixer()?.tracks.find((item) => item.name === name);
+        const gainNode = mixerGains.get(name);
+        if (track && gainNode) {
+            gainNode.gain.value = track.muted ? 0 : track.gain / 100;
+        }
+    }
+
+    async function playMix(): Promise<void> {
+        const current = mixer();
+        if (!current) return;
+        setError("");
+        stopMixer();
+        try {
+            mixerContext = new AudioContext();
+            const startAt = mixerContext.currentTime + 0.05;
+            for (const track of current.tracks) {
+                if (track.muted || track.gain <= 0) continue;
+                const buffer = await mixerContext.decodeAudioData(
+                    Uint8Array.from(track.bytes).buffer,
+                );
+                const gain = mixerContext.createGain();
+                gain.gain.value = track.gain / 100;
+                const source = mixerContext.createBufferSource();
+                source.buffer = buffer;
+                source.connect(gain).connect(mixerContext.destination);
+                source.start(startAt);
+                mixerSources.push(source);
+                mixerGains.set(track.name, gain);
+            }
+            setPlaying(true);
+        } catch (cause) {
+            setError(`The tracks could not be mixed: ${errorMessage(cause)}`);
+            stopMixer();
+        }
+    }
+
+    async function importAudio(file: File): Promise<void> {
+        setError("");
+        setMessage("");
+        setState("saving");
+        try {
+            const bytes = Array.from(new Uint8Array(await file.arrayBuffer()));
+            await recordingsApi.import({
+                sessionId: props.detail.session.id,
+                title: file.name || "Imported lesson audio",
+                source: "imported",
+                sampleRate: 0,
+                channels: 0,
+                durationUs: 0,
+                bytes,
+            });
+            setMessage("Audio attached to this session.");
+            props.onChanged();
+        } catch (cause) {
+            setError(errorMessage(cause));
+        } finally {
+            setState("idle");
         }
     }
 
@@ -351,7 +466,7 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
             <Panel>
                 <PanelHeader
                     title="Record this session"
-                    detail="Microphone plus optional system audio, mixed into one track."
+                    detail="Microphone plus optional system audio, captured as separate mixable tracks."
                 />
                 <div class="grid gap-3 p-4">
                     <div class="rounded-[5px] border border-line bg-surface-subtle px-3 py-2 text-xs leading-relaxed text-muted">
@@ -389,7 +504,7 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
                         <Button
                             variant={state() === "recording" ? "danger" : "primary"}
                             disabled={state() === "saving" || !consent()}
-                            onClick={() => (state() === "recording" ? stop() : void start())}
+                            onClick={() => (state() === "recording" ? void stop() : void start())}
                         >
                             <Icon name="microphone" />
                             {state() === "saving"
@@ -404,6 +519,27 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
                                 {formatTimestampUs(elapsed() * 1_000_000)}
                             </span>
                         </Show>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 border-t border-line-soft pt-3 text-[11px] text-muted">
+                        <input
+                            ref={(element) => (audioFileInput = element)}
+                            class="hidden"
+                            type="file"
+                            accept="audio/*"
+                            onChange={(event) => {
+                                const file = event.currentTarget.files?.[0];
+                                event.currentTarget.value = "";
+                                if (file) void importAudio(file);
+                            }}
+                        />
+                        <Button
+                            size="sm"
+                            onClick={() => audioFileInput?.click()}
+                            disabled={state() === "saving"}
+                        >
+                            Attach audio file
+                        </Button>
+                        <span>Use this on mobile or when microphone capture is unavailable.</span>
                     </div>
                 </div>
             </Panel>
@@ -435,14 +571,15 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
                                             {formatBytes(recording.byteSize)}
                                         </span>
                                     </div>
-                                    <div class="flex items-center gap-2 text-[11px] text-muted">
+                                    <div class="flex flex-wrap items-center gap-2 text-[11px] text-muted">
                                         <span>{formatDateTime(recording.startedAt)}</span>
                                         <span>{formatTimestampUs(recording.durationUs)}</span>
+                                        <span>{recording.tracks.join(" + ")}</span>
                                     </div>
                                     <div class="flex flex-wrap gap-1.5">
-                                        <Button size="sm" onClick={() => void play(recording)}>
+                                        <Button size="sm" onClick={() => void loadMixer(recording)}>
                                             <Icon name="play" />
-                                            Play
+                                            Open mixer
                                         </Button>
                                         <ConfirmButton
                                             label="Delete"
@@ -454,13 +591,55 @@ function CapturePanel(props: { detail: SessionDetail; onChanged: () => void }): 
                                             }
                                         />
                                     </div>
-                                    <Show when={playback()?.id === recording.id}>
-                                        <audio
-                                            class="w-full"
-                                            controls
-                                            autoplay
-                                            src={playback()?.url}
-                                        />
+                                    <Show when={mixer()?.id === recording.id}>
+                                        <div class="grid gap-2 rounded-[5px] border border-line-soft bg-surface-subtle p-3">
+                                            <For each={mixer()?.tracks ?? []}>
+                                                {(track) => (
+                                                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                                                        <span class="w-24 capitalize text-ink">
+                                                            {track.name}
+                                                        </span>
+                                                        <input
+                                                            class="min-w-24 flex-1 accent-accent"
+                                                            type="range"
+                                                            min="0"
+                                                            max="100"
+                                                            value={track.gain}
+                                                            aria-label={`${track.name} volume`}
+                                                            onInput={(event) =>
+                                                                updateTrack(track.name, {
+                                                                    gain: Number(
+                                                                        event.currentTarget.value,
+                                                                    ),
+                                                                })
+                                                            }
+                                                        />
+                                                        <label class="flex items-center gap-1 text-muted">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={track.muted}
+                                                                onChange={(event) =>
+                                                                    updateTrack(track.name, {
+                                                                        muted: event.currentTarget
+                                                                            .checked,
+                                                                    })
+                                                                }
+                                                            />
+                                                            Mute
+                                                        </label>
+                                                    </div>
+                                                )}
+                                            </For>
+                                            <div class="flex gap-2">
+                                                <Button size="sm" onClick={() => void playMix()}>
+                                                    <Icon name="play" />
+                                                    {playing() ? "Restart mix" : "Play mix"}
+                                                </Button>
+                                                <Button size="sm" onClick={stopMixer}>
+                                                    Stop
+                                                </Button>
+                                            </div>
+                                        </div>
                                     </Show>
                                 </div>
                             )}
@@ -1438,11 +1617,26 @@ function OverviewPanel(props: {
     onChanged: () => void;
 }): JSX.Element {
     const [editing, setEditing] = createSignal(false);
+    const [error, setError] = createSignal("");
+    const [message, setMessage] = createSignal("");
 
     async function save(input: SessionInput): Promise<void> {
         await sessionsApi.update(props.detail.session.id, input);
         setEditing(false);
         props.onChanged();
+    }
+
+    async function exportPackage(): Promise<void> {
+        setError("");
+        setMessage("");
+        try {
+            const path = await chooseSessionPackageExport(props.detail.session.title);
+            if (!path) return;
+            const result = await sessionsApi.exportPackage(props.detail.session.id, path);
+            setMessage(`Session package exported to ${result.path}.`);
+        } catch (cause) {
+            setError(errorMessage(cause));
+        }
     }
 
     return (
@@ -1451,11 +1645,26 @@ function OverviewPanel(props: {
                 <PanelHeader
                     title="Session overview"
                     actions={
-                        <Button size="sm" onClick={() => setEditing((value) => !value)}>
-                            Edit session
-                        </Button>
+                        <div class="flex gap-2">
+                            <Button size="sm" onClick={() => void exportPackage()}>
+                                Export package
+                            </Button>
+                            <Button size="sm" onClick={() => setEditing((value) => !value)}>
+                                Edit session
+                            </Button>
+                        </div>
                     }
                 />
+                <Show when={error()}>
+                    <div class="px-4 pt-3">
+                        <InlineNotice tone="danger">{error()}</InlineNotice>
+                    </div>
+                </Show>
+                <Show when={message()}>
+                    <div class="px-4 pt-3">
+                        <InlineNotice tone="success">{message()}</InlineNotice>
+                    </div>
+                </Show>
                 <Show when={editing()}>
                     <SessionForm
                         initial={props.detail.session}
