@@ -8,21 +8,25 @@ pub fn due_reminders(conn: &Connection, lead_minutes: i64) -> Result<Vec<Reminde
     let until = now + lead_minutes * 60_000;
     let mut statement = conn
         .prepare(
-            "SELECT id, 'schedule', title, COALESCE(student_name, ''), start_at FROM (
-                 SELECT e.id, e.title, s.display_name AS student_name, e.start_at
-                 FROM schedule_events e
-                 LEFT JOIN students s ON s.id = e.student_id
-                 WHERE e.deleted_at IS NULL AND e.start_at BETWEEN ?1 AND ?2
-             )
-             UNION ALL
-             SELECT id, 'session', title, COALESCE(student_name, ''), start_at FROM (
+            "SELECT id, 'session', title, COALESCE(student_name, ''), start_at FROM (
                  SELECT s.id, s.title, st.display_name AS student_name,
                         COALESCE(s.scheduled_at, s.started_at) AS start_at
                  FROM sessions s
                  LEFT JOIN students st ON st.id = s.student_id
                  WHERE s.deleted_at IS NULL AND s.status = 'planned'
-                   AND s.schedule_event_id IS NULL
                    AND COALESCE(s.scheduled_at, s.started_at) BETWEEN ?1 AND ?2
+             )
+             UNION ALL
+             SELECT id, 'schedule', title, COALESCE(student_name, ''), start_at FROM (
+                 SELECT e.id, e.title, s.display_name AS student_name, e.start_at
+                 FROM schedule_events e
+                 LEFT JOIN students s ON s.id = e.student_id
+                 WHERE e.deleted_at IS NULL AND e.start_at BETWEEN ?1 AND ?2
+                   AND NOT EXISTS (
+                       SELECT 1 FROM sessions x
+                       WHERE x.schedule_event_id = e.id AND x.scheduled_at = e.start_at
+                         AND x.deleted_at IS NULL
+                   )
              )
              ORDER BY start_at",
         )
