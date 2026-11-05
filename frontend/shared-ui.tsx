@@ -1,5 +1,10 @@
-import { onCleanup, onMount, Show, type JSX } from "solid-js";
-import { buttonPrimary, cn, emptyPanel, icon, mutedText } from "./ui";
+import type { JSX } from "solid-js";
+
+function cn(...values: Array<string | false | null | undefined>): string {
+    return values.filter(Boolean).join(" ");
+}
+
+const icon = "h-4 w-4 shrink-0";
 
 export type IconName =
     | "home"
@@ -34,38 +39,6 @@ export type IconName =
     | "pause"
     | "volume"
     | "volumeMuted";
-
-export function EmptyState(props: {
-    icon: IconName;
-    title: string;
-    text: string;
-    action: string;
-    onAction: () => void;
-    disabled: boolean;
-}): JSX.Element {
-    return (
-        <div class={cn("empty-state", emptyPanel)}>
-            <span class="relative grid h-16 w-20 place-items-center" aria-hidden="true">
-                <span class="absolute h-14 w-[54px] rotate-[8deg] rounded-[5px] border border-accent/20 bg-accent-soft" />
-                <span class="absolute grid h-14 w-[50px] -rotate-[5deg] place-items-center gap-1 rounded-[5px] border border-line bg-surface">
-                    <Icon name={props.icon} class="h-4 w-4 text-accent" />
-                    <i class="h-px w-6 bg-line" />
-                    <i class="h-px w-6 bg-line" />
-                    <i class="h-px w-4 bg-line" />
-                </span>
-                <span class="absolute -top-0.5 right-2.5 text-lg text-[#c3a66c]">✳</span>
-            </span>
-            <h2 class="text-lg font-semibold tracking-tight text-ink">{props.title}</h2>
-            <p class={cn("max-w-md", mutedText)}>{props.text}</p>
-            <Show when={!props.disabled}>
-                <button class={buttonPrimary} type="button" onClick={() => props.onAction()}>
-                    <Icon name="plus" />
-                    {props.action}
-                </button>
-            </Show>
-        </div>
-    );
-}
 
 export function Icon(props: { name: IconName; class?: string }): JSX.Element {
     const common = {
@@ -246,140 +219,5 @@ export function Icon(props: { name: IconName; class?: string }): JSX.Element {
                 </>
             )}
         </svg>
-    );
-}
-
-export interface ManagedDialogProps {
-    children: JSX.Element;
-    class: string;
-    role: "dialog" | "alertdialog";
-    labelledBy?: string;
-    describedBy?: string;
-    label?: string;
-    onEscape?: () => void;
-    canEscape?: () => boolean;
-    onKeyDown?: (event: KeyboardEvent) => void;
-    restoreFocus?: () => boolean;
-}
-
-export function ManagedDialog(props: ManagedDialogProps): JSX.Element {
-    const returnFocus =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    let dialogElement!: HTMLElement;
-
-    const focusableElements = (): HTMLElement[] =>
-        [
-            ...dialogElement.querySelectorAll<HTMLElement>(
-                'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, audio[controls], video[controls], [contenteditable="true"], [tabindex]:not([tabindex="-1"])',
-            ),
-        ].filter(
-            (element) =>
-                !element.hasAttribute("hidden") &&
-                element.getAttribute("aria-hidden") !== "true" &&
-                element.getClientRects().length > 0,
-        );
-
-    onMount(() => {
-        const initialFocus =
-            dialogElement.querySelector<HTMLElement>("[data-dialog-initial-focus]") ??
-            (props.role === "dialog"
-                ? dialogElement.querySelector<HTMLElement>(
-                      'input:not([type="hidden"]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable="true"]',
-                  )
-                : null) ??
-            focusableElements()[0] ??
-            dialogElement;
-        initialFocus.focus({ preventScroll: true });
-
-        const onKeyDown = (event: KeyboardEvent): void => {
-            if (
-                !dialogElement.isConnected ||
-                [...document.querySelectorAll<HTMLElement>('[aria-modal="true"]')].at(-1) !==
-                    dialogElement
-            ) {
-                return;
-            }
-
-            if (event.key === "Escape" && props.onEscape) {
-                const target = event.target;
-                if (target instanceof Element && target.closest("[data-escape-scope='true']")) {
-                    return;
-                }
-                event.preventDefault();
-                event.stopPropagation();
-                if (props.canEscape?.() ?? true) props.onEscape();
-                return;
-            }
-
-            if (event.key !== "Tab") return;
-            const focusable = focusableElements();
-            if (focusable.length === 0) {
-                event.preventDefault();
-                dialogElement.focus({ preventScroll: true });
-                return;
-            }
-
-            const first = focusable[0]!;
-            const last = focusable.at(-1)!;
-            const active = document.activeElement;
-            if (
-                event.shiftKey &&
-                (active === first || active === dialogElement || !dialogElement.contains(active))
-            ) {
-                event.preventDefault();
-                last.focus();
-            } else if (
-                !event.shiftKey &&
-                (active === last || active === dialogElement || !dialogElement.contains(active))
-            ) {
-                event.preventDefault();
-                first.focus();
-            }
-        };
-
-        document.addEventListener("keydown", onKeyDown, true);
-        onCleanup(() => {
-            document.removeEventListener("keydown", onKeyDown, true);
-            if (props.restoreFocus?.() === false) return;
-            queueMicrotask(() => {
-                const activeDialog = [
-                    ...document.querySelectorAll<HTMLElement>('[aria-modal="true"]'),
-                ].at(-1);
-                const returnTarget =
-                    returnFocus?.isConnected &&
-                    !returnFocus.matches(":disabled, [aria-disabled='true']")
-                        ? returnFocus
-                        : null;
-                const target = activeDialog
-                    ? returnTarget && activeDialog.contains(returnTarget)
-                        ? returnTarget
-                        : (activeDialog.querySelector<HTMLElement>(
-                              'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-                          ) ?? activeDialog)
-                    : (returnTarget ?? document.querySelector<HTMLElement>("#main-content"));
-                target?.focus({ preventScroll: true });
-            });
-        });
-    });
-
-    return (
-        <section
-            ref={(element) => {
-                dialogElement = element;
-            }}
-            class={cn(
-                props.class,
-                "overscroll-contain focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-            )}
-            role={props.role}
-            aria-modal="true"
-            aria-labelledby={props.labelledBy}
-            aria-describedby={props.describedBy}
-            aria-label={props.label}
-            tabindex="-1"
-            onKeyDown={(event) => props.onKeyDown?.(event)}
-        >
-            {props.children}
-        </section>
     );
 }
