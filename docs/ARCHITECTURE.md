@@ -63,7 +63,8 @@ The typed boundary:
 - `types.ts` mirrors the Rust DTOs;
 - `ai.ts` builds reviewed cloud requests and handles local GGUF;
 - `embedded-ai.ts` owns local GGUF model inspection/loading and token streaming;
-- `whisper.ts` decodes recorded audio, resamples to 16 kHz mono WAV, and calls the bundled Whisper runtime.
+- `whisper.ts` decodes recorded audio, resamples to 16 kHz mono WAV, and calls the bundled Whisper runtime;
+- `calendar` commands in `client.ts` configure OAuth/CalDAV accounts and sync events.
 
 ### `src-tauri/src/store`
 
@@ -74,16 +75,29 @@ The persistent workspace:
 - `content.rs` — journal, observations, transcript cues, guides, evidence, goals, skills;
 - `schedule.rs` — recurring lesson materialization;
 - `materials.rs` — file import, link records, chunked reads, text indexing;
-- `recordings.rs` — recording metadata and compressed audio chunks;
+- `recordings.rs` — recording metadata and compressed audio chunks, including separate microphone/system tracks;
 - `search.rs` — FTS5 query handling;
 - `backup.rs` — SQLite online backup with encryption preservation and integrity check;
+- `maintenance.rs` — compaction, reindexing, recovery copies, and sanitized copies;
+- `packages.rs` — portable `.tutorpkg` session export/import;
+- `reminders.rs` — due-lesson reminders for desktop notifications;
 - `trash.rs` — 90-day Trash listing, restore, permanent deletion;
 - `settings.rs` — key/value settings and workspace rename;
 - `mod.rs` — the Tauri command surface.
 
+### `src-tauri/src/calendar.rs`
+
+- Google and Microsoft OAuth 2.0 with PKCE and a loopback callback.
+- Apple Calendar/CalDAV with an app-specific password.
+- OS credential-store token storage and calendar event upserts.
+
+### `src-tauri/src/ocr.rs`
+
+Bundled Ocrs models for local image OCR. Models are embedded; OCR never sends an image to a service.
+
 ### `src-tauri/src/host.rs`
 
-The Tauri composition root. It manages the workspace state, native menu, file launch handoff, dialog plugin, credential commands, AI transport, Whisper, local GGUF, and native capture commands.
+The Tauri composition root. It manages the workspace state, native menu, file launch handoff, dialog and notification plugins, credential commands, AI transport, Whisper, local GGUF, OCR, calendar, and native capture commands.
 
 ## Data flow
 
@@ -117,8 +131,36 @@ A single FTS5 table indexes students, sessions, journal entries, observations, t
 - zstd compression when it reduces size; raw storage otherwise.
 - SHA-256 content hashes deduplicate identical chunks.
 - Recorded audio is stored as compressed chunks with recording metadata.
+- Capture writes a mixed track plus separate microphone/system tracks when available; the UI mixes them with per-track gain and mute.
 - Material previews are capped in memory; large media is stored without a full-file load.
 - Waveforms and thumbnails are generated in the UI only when needed.
+
+## Packages and copies
+
+- A `.tutorpkg` session package is a small SQLite database containing one session, its student context, notes, evidence, guides, materials, recordings, blobs, and search rows.
+- Import remaps every entity ID and rewrites evidence source IDs to the imported records.
+- A sanitized `.tutor` copy removes recordings, transcripts, journals, observations, materials, AI jobs, and calendar accounts; it masks student and session names and clears notes.
+- A recovery copy is a verified SQLite snapshot of a healthy workspace.
+
+## Calendar integration
+
+- Google and Microsoft use OAuth with PKCE and a loopback redirect. Client IDs and optional secrets are configured in Settings; secrets and tokens stay in the OS credential store.
+- Apple Calendar uses CalDAV with an app-specific password.
+- Imported events upsert by provider account and external ID. Google and Microsoft responses are paged.
+- Calendar OAuth app registration is external to Tutorux.
+
+## OCR
+
+- OCR runs locally with embedded Ocrs models.
+- Supported material formats are PNG, JPEG, WebP, BMP, TIFF, and GIF.
+- Extracted text is stored on the material and indexed for search.
+- Scanned PDF pages are not rendered by OCR in this build.
+
+## Reminders
+
+- A 30-second watcher asks the store for lessons inside the configured lead window.
+- Notifications use the native notification plugin; the lead time and enable switch live in Settings.
+- Due schedule events and standalone planned sessions are both covered.
 
 ## Security boundaries
 
