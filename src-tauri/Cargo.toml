@@ -23,7 +23,6 @@ serde_json = "1"
 sha2 = "0.10"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
 tauri-plugin-single-instance = "2.5.4"
 keyring = "4.2.0"
 libc = "0.2.186"
@@ -31,14 +30,12 @@ llama-cpp-2 = "=0.1.160"
 uuid = { version = "1", features = ["v4"] }
 zeroize = "1.8"
 encoding_rs = "0.8.35"
-flate2 = "1"
 whisper-rs = { version = "=0.16.0", default-features = false }
-argon2 = "0.5"
-chacha20poly1305 = "0.10"
-hmac = "0.12"
-rand = "0.8"
-hex = "0.4"
 tempfile = "3"
+rusqlite = { version = "0.41", features = ["bundled-sqlcipher-vendored-openssl", "backup"] }
+thiserror = "2"
+zstd = "0.14"
+chrono = { version = "0.4", features = ["serde"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 cpal = { version = "0.18.2", default-features = false, features = ["pipewire"] }
@@ -73,15 +70,3 @@ whisper-rs-sys = { path = "vendor/whisper-rs-sys" }
 default = ["desktop"]
 desktop = []
 custom-protocol = ["tauri/custom-protocol"]
-audio-helper = []
-cli = []
-
-[[bin]]
-name = "tutorux-cli"
-path = "src/bin/tutorux-cli/main.rs"
-required-features = ["cli"]
-
-[[bin]]
-name = "tutorux-audio-helper"
-path = "src/bin/tutorux-audio-helper/main.rs"
-required-features = ["audio-helper"]
