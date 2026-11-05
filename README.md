@@ -1,114 +1,100 @@
 # Tutorux
 
-Tutorux is a local-first tutoring workspace. Student profiles, sessions, notes, transcripts, recordings, materials, evidence, and study guides live in portable `.tux` archives.
+Tutorux is a local-first tutoring workspace for students, sessions, recordings, transcripts, notes, materials, evidence, progress, and study guides. A workspace is one portable `.tutor` file.
 
-The application is a SolidJS and TypeScript interface running as a static Vite site or inside a Tauri 2 desktop shell. The same archive engine and domain rules serve the browser app and the desktop app; the standalone CLI uses the shared Rust core. Windows, macOS, and Linux are supported desktop targets.
+The application is a SolidJS and TypeScript interface running inside a Tauri 2 desktop shell. The workspace store is Rust and SQLite. The browser edition and the retired custom `.tux` archive engine are no longer part of the product.
 
 ## Requirements
 
 - Node.js 22.13 or newer
 - pnpm 12.14.0
-- Rust stable and the native Tauri prerequisites for desktop builds
-- FFmpeg on `PATH` for FLAC, MP3, and M4A import and for CLI recording fallback
+- Rust stable 1.90 or newer
+- The native Tauri prerequisites for your operating system
+- The system WebView2 runtime on Windows
+
+FFmpeg is optional and is not required by the new desktop workflow.
 
 ## Development
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm run dev
+pnpm run desktop:dev
 ```
 
-Useful checks and builds:
+The desktop shell starts Vite on `127.0.0.1:1420` and opens the Tauri window.
+
+Useful checks:
 
 ```sh
 pnpm run typecheck
 pnpm run lint
 pnpm run format:check
 pnpm run test
-pnpm run test:e2e
-pnpm run benchmark:archive
+pnpm run test:coverage
 pnpm run build
-pnpm run build:desktop
-pnpm run desktop:dev
-pnpm run desktop:build
+cargo test --manifest-path src-tauri/Cargo.toml --lib
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 ```
 
-`pnpm run build` produces the static site in `dist/`. `pnpm run desktop:build` typechecks, builds, packages, and collects the Tauri artifacts into `release/`. On Windows it produces an MSI installer, an NSIS setup installer, and `Tutorux_<version>_x64_portable.exe`. The portable EXE is the desktop executable with its frontend assets embedded; it does not unpack itself into a runtime directory or need companion application files. It still uses the installed system WebView2 runtime. Build release bundles on matching operating-system runners; one host does not cross-package all three desktop targets.
+`pnpm run build` typechecks the frontend and produces the desktop frontend in `dist/`.
 
-The desktop app uses per-user application state for archive locks and detached-recording controls. Whisper runs in process from the model embedded in the application executable; it does not download, extract, or write model files. Compressed-audio import uses uniquely named temporary files in the operating-system temp location and cleans them up; the desktop app does not create a temporary workspace directory. The standalone Rust CLI has its own temporary-file behavior and is not included in the portable EXE.
-
-See [Desktop release builds](docs/development/RELEASING.md) for artifact names, runtime requirements, and the distinction between the portable desktop executable and the standalone CLI.
-
-## Recording and transcripts
-
-The **Record** workspace is a primary navigation destination. Create or select a tutoring session, confirm recording consent, then record from the microphone or import an audio file. Recordings stay linked to that session. Import an existing transcript as plain text, SubRip, or WebVTT, or create timestamped cues from the full recording with the bundled multilingual Whisper Base model. Desktop full-track and live transcription work offline without a separate executable or model file; generated cues remain provisional until reviewed.
-
-Journal dates use the explicit `YYYY-MM-DD` format with an in-app calendar. Audio and video previews use Tutorux playback controls so their visible controls stay consistent across desktop and browser builds.
-
-The desktop app relies on the system WebView (WebView2 on Windows). The bundled Whisper Base Q5_1 model is part of every desktop executable, including both installers and the portable EXE. GGUF model files and the user's `.tux` archives remain user-supplied; FFmpeg is used for compressed-audio import. The command-line interface is the standalone Rust `tutorux-cli` binary. Build it with `cargo build --manifest-path src-tauri/Cargo.toml --features cli --bin tutorux-cli`; it is not embedded in the desktop executable.
+Build the desktop application without installers:
 
 ```sh
-tutorux-cli --help
-tutorux-cli archive discover --directory ./archives --json
-tutorux-cli archive init Lesson.tux --name "Algebra foundations"
-tutorux-cli archive encrypt Lesson.tux --new-passphrase-env TUTORUX_NEW_ARCHIVE_PASSPHRASE
-tutorux-cli archive rename Lesson.tux --name "Algebra foundations"
-tutorux-cli --passphrase-env TUTORUX_ARCHIVE_PASSPHRASE archive rename Lesson.tux --name "Algebra foundations"
-tutorux-cli --archive Lesson.tux student create --name "Maya Ortiz" --grade 10
-tutorux-cli --archive Lesson.tux session create --title "Fraction review" --subject Mathematics
-tutorux-cli --archive Lesson.tux transcript import --session <uuid> --input lesson.srt
-tutorux-cli --archive Lesson.tux transcript generate --session <uuid>
-tutorux-cli --archive Lesson.tux asset import --input worksheet.pdf --session <uuid>
-tutorux-cli archive verify Lesson.tux --full --json
+pnpm exec tauri build --no-bundle
 ```
 
-For an encrypted archive, provide its current passphrase with `--passphrase-env NAME`. `archive rename` changes only the display name. `transcript generate` resolves the session's default track and selected local Whisper model when the corresponding options are omitted; pass `--consent-local-audio` when the host requires explicit confirmation.
+The binary is written to `src-tauri/target/release/tutorux-desktop.exe` on Windows. `pnpm run desktop:build` performs the full Tauri packaging flow and writes release artifacts under `release/`.
 
-Session deletion first reports a revision-bound scope token, what will move to Trash, and which journal links will be detached. Copy that token into the confirmation command; restore brings the session group and its journal links back together.
+## Workspace format
 
-New sessions start active and automatically create a dated journal entry. Use `--entry-id` to attach a CLI-created session to an existing journal entry.
+A `.tutor` workspace is a SQLite database with:
 
-### CLI live audio recording
+- typed tables for students, sessions, schedule events, journal entries, observations, transcript cues, materials, recordings, guides, evidence, goals, skills, settings, and AI jobs;
+- an FTS5 index for global search;
+- content-addressed compressed BLOB storage with deduplication;
+- optional SQLCipher encryption;
+- 90-day Trash recovery;
+- manual verified backups.
 
-The CLI records microphone and supported system-loopback inputs at the source's native rate and channel count. It runs in the foreground; press Ctrl+C to stop and save. `record configure` stores microphone, playback, and durability preferences in the archive. Use `--source both` to save microphone and system audio as separate synchronized tracks. The CLI writes native-rate tracks and resamples only the Whisper window input to 16 kHz mono.
+Open and create `.tutor` files from the welcome screen. Encrypted workspaces prompt for the passphrase. Passphrase rotation is available in Settings after unlocking.
 
-```sh
-tutorux-cli --archive Lesson.tux record start --session <uuid> --consent --source microphone
-tutorux-cli --archive Lesson.tux record start --session <uuid> --consent --source system-audio --playback <loopback-id>
-tutorux-cli --archive Lesson.tux record start --session <uuid> --consent --source both --microphone <microphone-id> --playback <loopback-id>
-tutorux-cli record devices
-tutorux-cli --archive Lesson.tux record play --session <uuid> --track <uuid>
-```
+See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive-format/TUTOR-FORMAT.md).
 
-Device selection, platform backends, consent, optional local Whisper transcription, and the external FFmpeg requirement are covered in [the recording guide](docs/audio/CLI-LIVE-RECORDING.md).
+## Features
 
-## Archive compatibility
+- Today, Students, Sessions, Schedule, Materials, Guides, Evidence, Assistant, Archive, and Settings.
+- Session detail with Overview, Capture, Transcript, Notes, Materials, Evidence, and Guide tabs.
+- Microphone recording with optional system-audio mixing, local playback, and local Whisper transcription.
+- Cloud AI through reviewed native transports, plus local GGUF inference and an embedded Whisper model.
+- Global FTS5 search with `Ctrl/Cmd+K`.
+- Global goals, skill ratings, evidence timelines, and printable progress reports.
+- ICS calendar import/export and recurring schedule-to-session materialization.
+- Manual workspace backups that preserve encryption.
+- Optional SQLCipher workspace encryption and OS credential-store AI keys.
 
-The archive layer reads and writes the v1 header, record frames, primary B+ tree, commit, locator, encrypted envelopes, BLOB chunks, and secondary indexes. It validates lengths, checksums, and commit authentication before decoding. Legacy-format fixtures under `tests/fixtures/` are used for cross-implementation compatibility tests.
+## Deliberate limits
 
-The Solid UI and CLI can create and unlock encrypted v1 archives, authenticate their commit, index pages, and manifest, verify encrypted records on read, and append edits as authenticated generations. Encryption can be enabled on an open, fully published plaintext archive while preserving its ID and retained history. `archive change-passphrase` re-keys an archive after unlocking; previously saved backups keep their original passphrase.
-
-`archive recover` inspects an archive by default. Add `--recover-unpublished` (or `--apply`) to publish a complete unpublished generation after full validation, or `--discard-tail` to remove uncommitted trailing bytes.
-
-`archive compact` applies the rewrite by default and rebuilds secondary indexes while preserving retained revision history. Use `--preview` to inspect the result without replacing the file. It supports unlocked encrypted archives and can optionally prune unreferenced asset blobs.
-
-`archive repair` creates a separate `.tux` copy from the newest generation that passes full verification. It falls back to an earlier published generation when the latest generation has damaged records, compacts the copy, verifies it, and leaves the source untouched. The CLI requires `--confirm-sensitive`. Header repair handles supported checksum or magic corruption.
-
-`archive backup` (also `archive copy`) writes a byte-for-byte copy of a structurally openable archive, including encrypted archives, to a new destination. It requires `--confirm-sensitive` and preserves the original passphrase and bytes.
-
-`archive sanitize` previews a new `.tux` copy, then requires `--confirm-sensitive` plus the preview's generation, selection fingerprint, output path, and encryption choice before creating it. Student, session, and recording-track filters are supported. Private annotations and generation logs are excluded by default. An encrypted source always produces an encrypted copy; `--include-credentials` keeps existing credential records only from an encrypted source and requires encrypted output. The CLI writes bounded staging batches, fully verifies the copy, then atomically publishes it.
-
-The wire format is documented in [TUX-FORMAT-V1.md](docs/archive-format/TUX-FORMAT-V1.md) and [SESSION-PACKAGE-V1.md](docs/archive-format/SESSION-PACKAGE-V1.md).
+- Google Calendar and Outlook OAuth are not configured in this build. ICS import/export is available.
+- OCR for scanned worksheets is deferred.
+- The mobile layout is responsive but mobile-qualified capture is deferred.
+- Advanced archive repair, compaction, recovery, sanitized copies, and session packages are not exposed in the new UI.
+- The evidence graph view is not implemented; evidence records and timelines are.
+- A 100 GB qualification run has not been performed yet.
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Workspace format](docs/archive-format/TUTOR-FORMAT.md)
 - [TypeScript development](docs/development/TYPESCRIPT.md)
-- [Feature inventory](docs/migration/feature-inventory.md)
-- [Archive format](docs/archive-format/TUX-FORMAT-V1.md)
+- [Releasing](docs/development/RELEASING.md)
+- [Verification](docs/verification.md)
 - [Portable privacy](docs/security/PORTABLE-PRIVACY.md)
-- [Performance baseline](docs/performance/TYPESCRIPT-BASELINE.md)
-- [AI handoff](docs/ai/TYPESCRIPT-HANDOFF.md)
+- [Performance design](docs/performance/TYPESCRIPT-BASELINE.md)
+- [AI integration](docs/ai/TYPESCRIPT-HANDOFF.md)
+- [Feature inventory](docs/migration/feature-inventory.md)
+- [Production readiness](docs/engineering/PRODUCTION-READINESS.md)
 
 ## License
 
