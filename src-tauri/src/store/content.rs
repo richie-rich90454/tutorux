@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 use super::{
     models::{
-        now_ms, Evidence, EvidenceInput, Goal, GoalInput, Guide, GuideInput, JournalEntry,
-        JournalInput, Observation, ObservationInput, SkillRating, SkillRatingInput, TranscriptCue,
-        TranscriptCueInput,
+        now_ms, Evidence, EvidenceGraph, EvidenceInput, EvidenceLink, EvidenceLinkInput, Goal,
+        GoalInput, Guide, GuideInput, JournalEntry, JournalInput, Observation, ObservationInput,
+        SkillRating, SkillRatingInput, TranscriptCue, TranscriptCueInput,
     },
     repo::{reindex_public, touch_workspace_public},
 };
@@ -720,6 +720,133 @@ fn normalized_evidence_status(value: &str) -> &str {
         "draft" | "approved" | "rejected" => value,
         _ => "draft",
     }
+}
+
+fn evidence_link_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EvidenceLink> {
+    Ok(EvidenceLink {
+        id: row.get(0)?,
+        from_id: row.get(1)?,
+        to_id: row.get(2)?,
+        relationship: row.get(3)?,
+        created_at: row.get(4)?,
+    })
+}
+
+const EVIDENCE_LINK_SELECT: &str =
+    "SELECT id, from_id, to_id, relationship, created_at FROM evidence_links";
+
+pub fn list_evidence_links(
+    conn: &Connection,
+    student_id: &str,
+    session_id: &str,
+) -> Result<Vec<EvidenceLink>, String> {
+    let mut statement = conn
+        .prepare(&format!(
+            "{EVIDENCE_LINK_SELECT} l
+             WHERE EXISTS (SELECT 1 FROM evidence f WHERE f.id = l.from_id AND f.deleted_at IS NULL)
+               AND EXISTS (SELECT 1 FROM evidence t WHERE t.id = l.to_id AND t.deleted_at IS NULL)
+               AND (?1 = '' OR EXISTS (
+                   SELECT 1 FROM evidence f WHERE f.id = l.from_id AND f.student_id = ?1
+               ) AND EXISTS (
+                   SELECT 1 FROM evidence t WHERE t.id = l.to_id AND t.student_id = ?1
+               ))
+               AND (?2 = '' OR EXISTS (
+                   SELECT 1 FROM evidence f WHERE f.id = l.from_id AND f.session_id = ?2
+               ) AND EXISTS (
+                   SELECT 1 FROM evidence t WHERE t.id = l.to_id AND t.session_id = ?2
+               ))
+             ORDER BY l.created_at"
+        ))
+        .map_err(|error| format!("Could not read evidence links: {error}"))?;
+    let rows = statement
+        .query_map(params![student_id, session_id], evidence_link_row)
+        .map_err(|error| format!("Could not read evidence links: {error}"))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|error| format!("Could not read evidence links: {error}"))
+}
+
+pub fn evidence_graph(
+    conn: &Connection,
+    student_id: &str,
+    session_id: &str,
+) -> Result<EvidenceGraph, String> {
+    Ok(EvidenceGraph {
+        nodes: list_evidence(conn, student_id, session_id)?,
+        links: list_evidence_links(conn, student_id, session_id)?,
+    })
+}
+
+pub fn create_evidence_link(
+    conn: &Connection,
+    input: &EvidenceLinkInput,
+) -> Result<EvidenceLink, String> {
+    if input.from_id == input.to_id {
+        return Err("An evidence item cannot link to itself.".to_owned());
+    }
+    let relationship = input.relationship.trim();
+    if relationship.is_empty() {
+        return Err("Choose how the evidence items are related.".to_owned());
+    }
+    let from_student: Option<String> = conn
+        .query_row(
+            "SELECT student_id FROM evidence WHERE id = ?1 AND deleted_at IS NULL",
+            params![input.from_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("Could not read the evidence item: {error}"))?
+        .ok_or_else(|| "The source evidence item could not be found.".to_owned())?;
+    let to_student: Option<String> = conn
+        .query_row(
+            "SELECT student_id FROM evidence WHERE id = ?1 AND deleted_at IS NULL",
+            params![input.to_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("Could not read the evidence item: {error}"))?
+        .ok_or_else(|| "The target evidence item could not be found.".to_owned())?;
+    if from_student.is_some() && to_student.is_some() && from_student != to_student {
+        return Err("Link evidence items that belong to the same student.".to_owned());
+    }
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM evidence_links
+                WHERE from_id = ?1 AND to_id = ?2 AND relationship = ?3
+             )",
+            params![input.from_id, input.to_id, relationship],
+            |row| row.get(0),
+        )
+        .map_err(|error| format!("Could not check the evidence link: {error}"))?;
+    if exists {
+        return Err("That evidence link already exists.".to_owned());
+    }
+    let id = Uuid::new_v4().to_string();
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO evidence_links (id, from_id, to_id, relationship, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, input.from_id, input.to_id, relationship, now],
+    )
+    .map_err(|error| format!("Could not create the evidence link: {error}"))?;
+    touch_workspace_public(conn)?;
+    conn.query_row(
+        &format!("{EVIDENCE_LINK_SELECT} WHERE id = ?1"),
+        params![id],
+        evidence_link_row,
+    )
+    .map_err(|error| format!("Could not read the evidence link: {error}"))
+}
+
+pub fn delete_evidence_link(conn: &Connection, id: &str) -> Result<(), String> {
+    let changed = conn
+        .execute("DELETE FROM evidence_links WHERE id = ?1", params![id])
+        .map_err(|error| format!("Could not delete the evidence link: {error}"))?;
+    if changed == 0 {
+        return Err("The evidence link could not be found.".to_owned());
+    }
+    touch_workspace_public(conn)?;
+    Ok(())
 }
 
 pub fn list_goals(conn: &Connection, student_id: &str) -> Result<Vec<Goal>, String> {
