@@ -1,45 +1,41 @@
-# Tutorux feature coverage
+# Feature inventory
 
-This is the authoritative feature-by-feature record for the TypeScript, SolidJS, Tauri, and Rust implementation. The former C++/Slint application has been removed; its behavior is preserved in the current code and fixtures.
+This is the current state of the SQLite/Tauri rewrite.
 
-Status meanings:
-
-- **Implemented** — available in the application or CLI and covered by automated tests.
-- **Platform-qualified** — implemented and verified on the host platform. Cross-platform release qualification remains a CI responsibility.
-
-| Area | Coverage | Verification |
+| Area | Status | Notes |
 | --- | --- | --- |
-| Archive v1 format | Little-endian header, record frames, CRC-32, bounded payloads, LZ4, BLOBs, primary B+ tree, commit, locator, secondary indexes, and encrypted envelopes. Unsupported/forward-compatible record types are preserved. | Unit fixtures cover framing, checksums, compression, encryption, opaque records, and index pages. Legacy-format fixtures under `tests/fixtures/` are read by the TypeScript engine. |
-| Archive creation, open, save | Browser and Tauri adapters open/save the same archive core. Native range reads are capped at 4 MiB. External changes are detected before overwrite. | Playwright covers plain and encrypted create/save/reopen. CLI integration tests cover creation and mutation. |
-| Archive verification | Current, trashed, and opaque records; commit-chain history; asset manifests and SHA-256; guide sources; credential placement; overlapping frames; secondary indexes and revision lineage. | `verify.test.ts`, archive unit tests, and CLI integration tests, including `archive verify --full`. |
-| Recovery | Inspection-first preview, publication of complete unpublished generations, missing-locator recovery, damaged-header guidance, and `--discard-tail`. | Recovery tests cover truncated archives, trailing bytes, missing locators, and failed candidates. |
-| Repair and compaction | Repair copies from fully verified generations with discarded-region accounting. Compaction applies by default, previews with `--preview`, rebuilds indexes, preserves revisions, and optionally prunes unreferenced asset blobs. | Archive unit and CLI maintenance tests. |
-| Backup, encrypt, rotate | Byte-for-byte backups, in-place encryption, passphrase rotation, and encrypted maintenance after unlock. | Encryption fixtures, unit tests, CLI integration, and encrypted Playwright flows. |
-| Sanitized copies | Preview/confirm workflow, student/session/track filters, private-data defaults, encrypted-source rules, credential opt-in, staged verification, and atomic publication. | CLI sanitize tests and the review workflow. |
-| Session packages | Session export/import with linked records, anonymized student links, ID remapping, and optional learner linking. | Session-package unit and Playwright tests. |
-| Students | Create/show/list/update, profiles, progress classifications, source-checked reviews, history, and restore. | Domain, CLI, and Playwright coverage. |
-| Sessions | Create, notes, clone, lifecycle transitions, archive/unarchive, date/student/entry filters, reference-safe group Trash/restore, and recording metadata. | Domain, CLI, and Playwright coverage. |
-| Journal | Dated and undated entries, typed blocks, collections, tags, links, search, revisions, sort/date/session filters, grouped Trash, and journal-root maintenance. | Domain, CLI, and Playwright coverage. |
-| Document editor | Stable block IDs, typed blocks, unknown-field preservation, undo/redo, split/merge, find/replace, autosave, and Markdown/HTML/Word/PDF export. | Unit and Playwright coverage. |
-| Trash | Recoverable records, note blocks, evidence edges, session groups, journal-entry groups, legacy group children, purge previews, and active-reference blocking. | Domain, CLI, and Playwright coverage. |
-| Recordings and audio | The desktop Record page creates and selects a session, requests recording consent, captures microphone audio, imports audio, and keeps takes and tracks with their session. Native-rate/channel capture, synchronized microphone/system/application tracks, pause/resume, durability checkpoints, discontinuity markers, recovery, WAV/FLAC/MP3/M4A import, in-app playback, incremental mix, waveform indexes, export, and RF64 are available. | Audio unit tests, CLI tests, Playwright audio flows, and Rust unit tests for capture bookkeeping. |
-| Transcripts | Text/SRT/VTT streaming import, correction, timestamps, speakers, verification, revision restore, split/merge, search, material links, and text/SRT/VTT/JSON export. The desktop Record page exposes full-recording local Whisper transcription without requiring the user to load a preview first. Generated cues are provisional until reviewed. | Unit, CLI, and Playwright coverage. |
-| Whisper | Desktop full-track and live transcription use the bundled multilingual Base Q5_1 model in process, with bounded windows, incremental commits, language detection, and cancellation. CLI transcription can still use a selected external executable/model and optional diarization. | Rust verifies the embedded model loads and transcribes bounded audio; live hardware behavior requires per-OS qualification. |
-| Annotations | Timestamped observations, types/priorities, filters, quick markers from every view, duplication, links, split/merge, history, Trash, and playback from timestamps. | Unit, CLI, and Playwright coverage. |
-| Materials | Chunked import, hash deduplication, preview, extraction, metadata, history, Trash, and session scoping. | Unit, CLI, and Playwright coverage. |
-| Evidence | Extraction, review, approval/rejection, source integrity, graph edges, edge Trash/restore, contradiction summaries, and provenance. | Domain, CLI, and Playwright coverage. |
-| Study guides and templates | Built-in and custom templates, built-in overrides, text/Markdown/JSON import, source-validated generation, empty-section pruning, section regeneration, approved-draft regeneration, section/block editing, image insertion, validation before export, and Markdown/HTML/JSON/Word/PDF export. | Domain, CLI, and Playwright coverage. |
-| AI workspace | Manual packages, context packing, multimodal attachments, encrypted credentials, provider previews, explicit confirmation, local GGUF, provider catalogs with TTL, structured output, partial cancellation, error metadata, Ollama model listing/connection checks, external response import, and saved responses. | Unit, CLI, Rust transport tests, and Playwright coverage. |
-| Settings and privacy | Theme, shortcut configuration, archive settings import/export, credential management, local diagnostics, support reports, and no-network guarantees. | Unit and Playwright coverage. |
-| CLI | Archive, student, session, journal, annotation, transcript, asset, evidence, guide, template, settings, model, record, diagnostics, benchmark, and AI command families, including legacy aliases and JSON contracts. | CLI parity and integration tests. |
-| Navigation and accessibility | Responsive navigation with primary access to recording, command palette, configurable shortcuts, skip link, focus restoration, dialog focus traps, light/dark themes, keyboard checks, custom ISO date entry/calendar, and app-owned audio/video controls. | Playwright responsive/keyboard coverage. Screen-reader and desktop-DPI review remain release checks. |
-| Packaging | Vite static build, Tauri packages, icons, `.tux` association, single-instance launch routing, and a single-process desktop executable with in-process Whisper, GGUF inference, and native audio. Windows release collection includes MSI, NSIS, and a one-file portable EXE. macOS `.app` bundles are archived as `.tar.gz` so POSIX modes survive, and each OS publishes `SHA256SUMS.txt` beside its artifacts. | CI builds and packages on Windows, macOS, and Linux. Local packaging is Windows-host qualified; portable execution needs the system WebView2 runtime and creates per-user state as needed. |
-
-## Remaining release qualification
-
-These are environment and hardware checks, not missing product features:
-
-- macOS and Linux capture permissions, ScreenCaptureKit, PipeWire, and packaged-app behavior.
-- Real device matrices for microphone, system, and per-application capture, including clock drift and long sessions.
-- Desktop DPI, screen-reader review, and clean-machine installation.
-- Installer signing and notarization credentials; CI packages all three operating systems unsigned until those secrets are configured.
+| Workspace create/open | Implemented | `.tutor` SQLite file, optional SQLCipher passphrase |
+| Workspace rename | Implemented | Name and description in Settings |
+| Workspace close | Implemented | SQLCipher key zeroized |
+| Optional encryption | Implemented | Create-time passphrase, unlock prompt, rekey in Settings |
+| Encrypted backup | Implemented | SQLite backup preserves the key |
+| Integrity check | Implemented | `PRAGMA integrity_check` from Archive |
+| 90-day Trash | Implemented | Restore, permanent delete, empty Trash |
+| Students | Implemented | Profiles, year, subjects, goals, notes |
+| Student progress | Implemented | Goals, 0–5 skill ratings, evidence timeline, session history, printable report |
+| Sessions | Implemented | Status, date, subject, notes, lifecycle |
+| Session capture | Implemented | Microphone + optional system audio mixed via Web Audio; local playback |
+| Local Whisper | Implemented | Bundled model, language selector, full-track transcription, review cues |
+| Transcript editing | Implemented | Add, edit, delete, import SRT/VTT/text, export SRT/VTT |
+| Session journal | Implemented | Session-scoped journal entries |
+| Observations | Implemented | Type, priority, title, body |
+| Materials | Implemented | Files, links, chunked storage, previews, FTS indexing |
+| Guides | Implemented | Create, edit, preview, Markdown/HTML/Word/text export, print/PDF, built-in templates |
+| Evidence | Implemented | Records, approval, timeline; graph view not implemented |
+| Schedule | Implemented | One-off and recurring series materialize sessions, ICS import/export |
+| Today | Implemented | Upcoming sessions, continue card, recent sessions, students, onboarding checklist |
+| Global search | Implemented | FTS5 over students, sessions, notes, cues, materials, guides, evidence |
+| Assistant | Implemented | Cloud providers with consent; local GGUF with user-supplied model |
+| Simple/Advanced | Implemented | Provider setup and advanced archive controls hidden in Simple |
+| Manual backup | Implemented | No automatic backup |
+| Calendar OAuth | Not implemented | Google/Outlook/macOS Calendar require OAuth client registration |
+| Reminders | Not implemented | No background notification scheduler |
+| OCR | Deferred | Scanned worksheets are stored but not searchable |
+| Mobile-qualified capture | Deferred | Layout is responsive; mobile capture is not qualified |
+| Evidence graph | Not implemented | Evidence records and timeline exist |
+| Session packages | Not implemented | Export/import not exposed |
+| Sanitized copy | Not implemented | Advanced archive copy not exposed |
+| Repair/compact/recover | Not implemented in UI | Legacy custom-format tools were removed |
+| Multi-track mixing | Partial | Default mixed capture; separate-track mixing not exposed |
+| Browser edition | Retired | Desktop Tauri only |
+| CLI/console | Retired | Removed with the custom archive engine |
