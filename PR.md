@@ -1,187 +1,99 @@
-# PR: Complete the Tutorux Tauri rewrite, Rust CLI parity, and production hardening
+# Tutorux SQLite desktop rewrite
 
-## Branch and base
+## Branch
 
-- Branch: `tauri-rewrite`
-- Base: `main` at `7fbbe9e6bc58ef024eb8da5ccae05166fc62936e`
-- Before this final audit update: **2,904 commits**, **1,737 changed paths**, **+508,218 / −115,771** lines.
-- This update adds a sequence of **single-file commits** (one file per commit), including this PR description, the code/test fixes, and the production audit records.
+`tauri-rewrite`
 
 ## Summary
 
-This branch replaces the retired C++/Slint Tutorux application with a local-first application built from SolidJS, TypeScript, Vite, Tauri 2, and a Rust native core. The same archive engine, domain rules, and UI support both the static browser edition and the Windows/macOS/Linux desktop edition. The branch also ports the command-line surface to Rust, embeds offline Whisper transcription and GGUF inference in the desktop process, completes the recording/transcript/guide/AI workflows, and closes a production audit covering archive integrity, save publication, IPC boundaries, and data-loss paths.
+This change replaces the custom `.tux` archive application with a desktop-first Tutorux built on SolidJS, Tauri 2, Rust, and SQLite.
 
-The result is no longer a UI mockup or a partially ported shell. The application opens, edits, verifies, encrypts, repairs, compacts, saves, and reopens `.tux` archives; records and transcribes audio; imports and exports materials and documents; manages students, sessions, journal entries, notes, evidence, and guides; runs AI requests through reviewed native transports; and exposes the same domain capabilities through the standalone CLI and the in-app console.
+One `.tutor` file now contains the workspace: students, sessions, schedule, recordings, transcripts, journal entries, observations, materials, evidence, goals, skills, guides, settings, and AI jobs. Storage is incremental SQLite instead of full-archive generation writes. Search is FTS5. Media is chunked and compressed. Encryption is optional SQLCipher.
 
 ## Why
 
-The C++/Slint implementation was being retired, but Tutorux needed to retain its product behavior and local-first data guarantees. A browser-first UI alone would lose native file access, capture, offline transcription, and secure credential storage; a native-only rewrite would lose the portable browser edition and shared domain logic. This branch keeps one TypeScript domain/archive implementation, adds a thin platform contract, and places native resources, archive locks, capture, Whisper, and AI transport in Rust.
+The previous application had three major structural problems:
+
+- a custom archive format coupled to a 7,000-line orchestration file;
+- duplicate TypeScript and Rust domain paths;
+- a browser/static and desktop product requiring two storage adapters.
+
+The new architecture has one desktop UI, one Rust workspace store, one SQLite file, and one typed command boundary.
 
 ## Major changes
 
-### 1. Migration foundation and application shell
+### Workspace and storage
 
-- Removed the active dependency on the C++/Slint runtime and rebuilt the application around SolidJS, TypeScript, Vite, and Tauri 2.
-- Added strict TypeScript configuration, shared formatting/linting, browser E2E harnesses, and cross-platform CI.
-- Added the shared workspace shell, sidebar navigation, responsive layouts, command palette, native-feeling controls, date picker, media player, and accessibility states.
-- Preserved the Tutorux product identity, icon, local-first behavior, and light/dark appearance system.
+- SQLite schema with typed tables and indexes.
+- FTS5 global search.
+- Chunked, content-addressed, zstd-compressed BLOB storage.
+- Optional SQLCipher encryption, unlock, rekey, and encrypted backups.
+- 90-day Trash with restore and purge.
+- Manual verified backup.
 
-### 2. Shared `.tux` archive engine
+### Desktop host
 
-- Implemented the complete v1 archive format in TypeScript: header, record frames, checksums, LZ4 payloads, index pages, commit roots, locators, and immutable generations.
-- Added bounded byte sources, browser/memory/composite/desktop sources, streaming reads, and range validation.
-- Implemented create, open, append, save, verify, history verification, repair, recovery, tail discard, compaction, backfill, rebuild, encryption, passphrase rotation, lock/unlock, sanitize, backup, and trash purge.
-- Added corruption detection, overlapping-frame rejection, manifest/hash validation, citation validation, credential-placement checks, and recovery of complete unpublished generations.
-- Added the Rust core implementation of the same archive and domain rules, used by the CLI and desktop host.
+- Rust store command surface.
+- Single-instance `.tutor` launch queue.
+- Native menu renamed for workspaces.
+- Native dialog and credential-store integration.
+- Embedded Whisper model.
+- Local GGUF inference.
+- Reviewed cloud AI transport.
+- Native synchronized capture primitives remain available.
 
-### 3. Domain and workflow parity
+### Frontend
 
-- Students, sessions, session lifecycle, cloning, archive visibility, session packages, notes, journal entries, organizers, collections, tags, and Trash/restore.
-- Transcript import (text/SRT/VTT), correction, timestamps, speakers, split/merge, history, verification, search, export, and material links.
-- Materials import, preview, export, hashing, waveform previews, placement, alias filtering, and Trash/restore.
-- Evidence extraction, review, approval/rejection, graph edges, source links, and Trash/restore.
-- Study guide templates, generation, editing, regeneration, section/block operations, versions, approvals, exports, and source validation.
-- Student progress reviews and version history.
-- AI package preparation, context selection, attachments, request confirmation, response import, provider configuration, credential policy, and job history.
+- New `frontend/app` shell with hash routing and a workspace provider.
+- New design system with flat teal surfaces, no gradients, no glass, no accent bars, and sentence-case labels.
+- Today, Students, Sessions, Schedule, Materials, Guides, Evidence, Assistant, Archive, and Settings.
+- Session detail tabs: Overview, Capture, Transcript, Notes, Materials, Evidence, Guide.
+- Global `Ctrl/Cmd+K` search.
+- Local recording and playback with optional system audio.
+- Local Whisper transcription with language selection.
+- Cloud and local AI tasks.
+- Simple/Advanced mode.
 
-### 4. Rust CLI and capability parity
+### Removed
 
-- Added the standalone `tutorux-cli` binary and the in-app console, both using one Rust command router.
-- Registered **218 capabilities** across archive, AI, annotations, assets, benchmarks, diagnostics, evidence, guides, journal, models, recordings, sessions, settings, students, templates, and transcripts.
-- Added generation-guarded writes, transactional archive replacement, exclusive/shared archive locks, stale-image detection, passphrase safety gates, confirmation gates for destructive operations, and bounded cancellation checks.
-- Added 47 golden contract cases covering **218/218 capabilities**, with 215 exercised by the corpus and 3 by cited Rust integration tests.
-- Kept feature parity invariant: no CLI-only or GUI-only core capability.
-
-### 5. Desktop host and Tauri integration
-
-- Implemented authorized archive range reads, staged save publication, atomic no-replace moves, recovery copies, destination identity checks, native menus, single-instance `.tux` launch routing, and native export writes.
-- Added native dialog/fs/single-instance plugins with least-privilege capability configuration and a Content Security Policy.
-- Added main-window checks, path/extension validation, save-kind validation, startup/system-directory blocking, and credential boundaries.
-- Added Windows WebView2 compatibility settings, high-DPI-safe layout, and true GUI-subsystem release binaries.
-- Added encrypted archive reauthorization, save-conflict recovery, and protection against external in-place modifications.
-
-### 6. Recording, capture, and transcription
-
-- Added microphone, system-audio, and application capture for the desktop host, including WASAPI, CoreAudio, and Linux capture paths where supported.
-- Added synchronized multi-track capture with native sample rates, channel counts, sample formats, gaps, discontinuities, pause/resume, checkpoints, and recovery.
-- Added WAV import/recovery, streaming WAV/RF64 export, audio mixing, waveform indexing, and bounded preview/playback windows.
-- Embedded the multilingual Whisper Base Q5_1 model in the desktop executable and added offline full-track and live transcription without extracting a model or requiring a Node runtime.
-- Added provisional cue review, cancellation, incremental commits, cue refinement, and transcript editing.
-- Added synchronized transcript playback: loading a cue highlights the active cue and keeps `aria-current` aligned with the selected recording, and the desktop/multi-track path supports selecting among multiple recordings in one session.
-- Simplified the Record workspace into **Capture → Review → Mix** panes, with one primary action per step. Microphone and synchronized-capture cards now use a single status banner, collapse live-transcription settings behind an explicit disclosure, and keep recovery actions visible only when a recoverable take exists.
-- Increased the live Whisper queue and default window (10 seconds), restarted cleanly after a failed/cancelled live session, and kept full-track offline transcription available from Review as the reliable fallback.
-- Enlarged shared creation/edit dialogs from 475 px to 760 px, removed the decorative dialog icon, collapsed journal filters behind a Filters disclosure, and grouped secondary audio imports into one menu.
-
-### 7. AI providers and local inference
-
-- Added reviewed native transports for OpenAI, Anthropic, Google Gemini, Cohere, Perplexity, Replicate, xAI, OpenRouter, Together, Fireworks, DeepInfra, Novita, Nebius, Groq, Cerebras, SambaNova, NVIDIA, DeepSeek, Mistral, Hugging Face, Moonshot, Z.AI, MiniMax, SiliconFlow, Alibaba Cloud, Baidu, Tencent Cloud, Volcengine, Bedrock, Azure OpenAI, Cloudflare Workers AI, AI21, OpenCode Zen, and OpenAI-compatible endpoints.
-- Added fixed-host validation, loopback-only local endpoints, redirects disabled, bounded request/response sizes, request hashing and explicit outbound confirmation, and credential zeroization.
-- Added Replicate prediction polling/cancellation, OpenAI-compatible streaming, Ollama model discovery, and external AI response import.
-- Added in-process GGUF inspection and inference through `llama-cpp-2`, linked with the vendored whisper.cpp symbol namespace.
-
-### 8. Documents, exports, and portability
-
-- Added DOCX/PDF text extraction, DOCX export, PDF export with embedded images, HTML/Markdown/JSON exports, and transcript subtitle/text exports.
-- Added browser downloads, File System Access API saves, desktop staged exports, and safe overwrite/recovery behavior.
-- Added browser-static and Tauri desktop builds from the same source, with lazy route/vendor splitting and generated asset handling.
-- Added portable `.tux` files, session packages, encrypted archives, and sanitized copies.
-
-### 9. UI system, accessibility, and responsive behavior
-
-- Moved component styling to Tailwind v4 utilities declared beside the components; removed the retired component CSS files.
-- Added keyboard navigation, focus scoping, modal guardrails, accessible names, reduced-motion handling, screen-reader labels, date-picker semantics, and responsive layouts from phone to desktop widths.
-- Added browser/desktop parity for navigation, dialogs, forms, transcript review, materials, guides, AI, archive health, settings, and Trash.
-- Added visual regression/behavioral E2E coverage for width overflow, block action fit, empty states, dialogs, and primary-action inventories.
-
-### 10. Production audit and reliability fixes
-
-The 2026-11-04 audit is recorded in `docs/engineering/production-audit/`. It produced **26 confirmed findings**, all corrected:
-
-- Archive recovery now finds locators straddling scan boundaries, so a crash tail cannot make the newest committed generation disappear.
-- Compaction and encryption accept duplicate content-hash aliases used by audio placeholder manifests.
-- Pruning retains placeholder blobs referenced by audio tracks and takes.
-- Sanitized-copy guide parsing rejects oversized counts and cannot panic on a multibyte character boundary.
-- The in-app console reuses the desktop archive lease instead of failing every write with `archive_locked`.
-- Failed saves preserve the only recovery copy instead of deleting it.
-- Deleted destinations and stale authorization tokens no longer block Save As or create false external-change conflicts.
-- Crafted generation/revision values cannot overflow into panics or silently skip a commit.
-- CLI writes revalidate the loaded archive image, so same-size in-place external changes are not silently overwritten.
-- Fixed AI provider hosts reject non-default ports; custom OpenAI-compatible endpoints cannot use another provider's keychain key.
-- The desktop CSP permits local Ollama discovery while preserving the strict remote-host allowlist.
-- Save/export commands require the main window, restrict export file types, and reject system/startup destinations; FFmpeg must be named `ffmpeg`.
-- Opening or creating another archive is refused while work is unsaved, a guide editor is open, or a dialog is open; accepted switches clear transient dialogs.
-- Background recording/transcription checkpoints no longer close unrelated forms.
-- Save completion cannot replace a newer workspace snapshot and mark newer work clean.
-- “Save a copy” now performs Save As instead of overwriting the current archive.
-- Locking an encrypted archive removes all record-derived state, including settings and AI jobs.
-- Editing text alone keeps an untimestamped transcript cue untimestamped.
-- Sanitized-copy selections survive snapshot updates and are pruned only when records disappear.
-- Session-package cleanup cannot leave the UI permanently busy.
-- AI response import preserves the detected template when “Auto” is selected.
-- Browser AI errors distinguish timeout, offline, and CORS failures.
-- The native recovery button is reactively disabled during browser capture.
-- Console recording no longer launches the GUI instead of a worker; users are directed to the Record workspace.
-- The pending single-instance launch queue is bounded.
-- Asset verification enforces the 256 MiB material cap and duplicate BLOB aliases; the remaining memory ceiling is documented.
+- Custom `.tux` archive engine.
+- Browser edition and browser archive adapter.
+- In-app command console.
+- Standalone TypeScript CLI.
+- Standalone Rust CLI and parity corpus.
+- Audio helper binary.
+- Legacy UI pages, domain modules, and tests.
 
 ## Verification
 
-All commands were run against the final working tree unless marked otherwise.
+```text
+pnpm run typecheck
+pnpm run lint
+pnpm run format:check
+pnpm run test:coverage
+pnpm run build
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --lib
+pnpm exec tauri build --no-bundle
+```
 
-| Command | Result |
-| --- | --- |
-| `pnpm run typecheck` | PASS |
-| `pnpm run lint` | PASS |
-| `pnpm run format:check` | PASS |
-| `pnpm run test:coverage` | PASS — **100% statements, branches, functions, lines**; 111 files, 2,130 tests |
-| `pnpm exec playwright test --workers=2` | PASS — 36 tests, headless Chromium |
-| `node scripts/e2e-coverage.mjs --check` | PASS — 48.72% statements / 35.21% branches / 58.99% functions / 48.92% lines |
-| `cargo fmt --check` | PASS |
-| `cargo clippy --locked --offline --all-targets --all-features -D warnings` | PASS |
-| `cargo check --locked --offline --all-features --bins` | PASS |
-| `cargo test --locked --offline --all-features` | PASS — 246 library tests + 8 audio-helper tests |
-| `node scripts/rust-parity/run.mjs` | PASS — 47/47 cases, 218 capabilities, 0 missing |
-| `pnpm run build` | PASS |
-| `pnpm run build:desktop` | PASS |
-| `pnpm run desktop:build` | PASS — MSI, NSIS and portable EXE rebuilt |
-| `pnpm audit --audit-level high` | PASS — no known vulnerabilities |
-| `pnpm run benchmark:archive` | PASS — 4,622,032 bytes, 679.23 ms append, 174.48 ms list for 10,000 records |
+All pass. The release desktop binary was launched and verified with embedded assets.
 
-Regression coverage added in this audit includes locator-boundary recovery, ambient console locking, duplicate BLOB aliases, audio placeholder retention, sanitizer malformed input, save recovery-copy retention, deleted-destination identity, FFmpeg naming, provider ports, console recording rejection, unsaved-archive switching, browser AI error classification, multi-track playback selection, synchronized transcript highlighting, and playback timeline validation.
+## Remaining work
 
-## Release artifacts
+- Calendar OAuth for Google, Outlook, and macOS Calendar.
+- Reminders.
+- OCR.
+- Evidence graph.
+- Session packages.
+- Sanitized copies.
+- Advanced archive repair/compaction/recovery UI.
+- Multi-track mixer.
+- 100 GB qualification.
+- Mobile-qualified capture.
+- Live provider/model/audio qualification with real credentials and fixtures.
 
-`release/` contains Windows artifacts rebuilt from the audited tree:
+## Risk
 
-- `Tutorux_1.0.0_x64_en-US.msi` — 70,189,056 bytes
-- `Tutorux_1.0.0_x64-setup.exe` — 64,784,923 bytes
-- `Tutorux_1.0.0_x64_portable.exe` — 95,105,024 bytes
-- MSI SHA-256: `CB243B1034E9AB68BD5C0411A8C9E0CBB3FD5F7DD80D16AFD4A6D96ECDF94B02`
-- NSIS SHA-256: `A91804747CE89D5A244A497686023ACD5D3D93E15D0829AB703671B8729EFE14`
-- Portable SHA-256: `D32379C63CD03CEBFE082C0F4858E84370AB3410D2792AED1B50B9079E1B80B5`
-
-The embedded Whisper model is `resources/whisper/ggml-base-q5_1.bin`, SHA-256 `422F1AE452ADE6F30A004D7E5C6A43195E4433BC370BF23FAC9CC591F01A8898`.
-
-## Known limitations and remaining qualification work
-
-- Real microphone, system-audio, application-capture, and device-matrix behavior was not exercised on physical hardware in this audit; deterministic fakes cover the state machines and native probe logic.
-- macOS and Linux runtime behavior was not executed on this Windows host. Their platform-specific code compiles through shared Rust targets, but runtime qualification remains. Cross-platform installers are produced by CI, not this host.
-- ScreenCaptureKit, PipeWire/ALSA, CoreAudio permissions, DPI, screen-reader review, and signed/notarized installers remain release qualification work.
-- JavaScript dependency audit is clean. The OSV scan of 623 locked Rust packages found seven transitive advisories; `DEPENDENCY_AUDIT.md` records their target scope and mitigation. The Linux GTK/D-Bus advisories and the `ringbuf` fix require upstream dependency updates that are not available offline on this host.
-- Security residual: the in-app console intentionally exposes the CLI command surface, and desktop commands are callable by the main renderer. No XSS or remote-script path was found; every sensitive command validates the main window and file boundaries. A fully compromised renderer remains a trust boundary equal to the application process.
-- The 2026-11-04 benchmark is a single non-warmed Windows sample: 10,000 records, 4,622,032-byte archive, 679.23 ms append, 174.48 ms list, 152,084,480-byte RSS delta. It is directional, not a cross-platform memory budget.
-- Rust line coverage is instrumented at 59.83% across the full native target (246 library tests + 8 helper tests + 47 CLI contract cases). The remaining lines are desktop Tauri host/webview code, native capture backends, detached FFmpeg workers, and live-model sessions that cannot execute under the no-window/no-hardware rules. `RUST-COVERAGE.md` records the exact uncovered categories.
-- JavaScript/TypeScript logic thresholds remain 100%, and browser E2E remains a ratchet; `.tsx` rendering branches are behaviorally covered rather than line-covered.
-
-## Commit structure
-
-Every changed file in this update is committed separately, as requested. The final branch contains the 2,904 migration commits plus the single-file audit/PR commits. No release was published, no remote was modified, and no user data or external service was touched.
-
-## Review focus
-
-1. Archive recovery and compaction semantics (`src-tauri/src/core/archive/open.rs`, `commit.rs`, `maintenance/*`).
-2. Save publication and lock reentrancy (`desktop/save.rs`, `desktop/archive.rs`, `archive_lock_support.rs`, `console/session.rs`).
-3. Archive-switch/save/dialog state transitions (`frontend/main.tsx`).
-4. Desktop IPC and path boundaries (`desktop/*`, `audio_import.rs`, `tauri.conf.json`).
-5. AI host/endpoint and credential rules (`ai_transport/validation.rs`, `core/cli/misc/ai/archive.rs`).
-6. Sanitized-copy privacy behavior (`frontend/SanitizedCopy.tsx`).
+The storage and UI rewrite changes the workspace format completely. There is no `.tux` compatibility layer. The application has not been deployed, so this is intentional. Any existing `.tux` data would require a separate migration tool.
