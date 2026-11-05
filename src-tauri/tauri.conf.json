@@ -47,9 +47,9 @@
         ],
         "fileAssociations": [
             {
-                "ext": ["tux"],
-                "name": "Tutorux Archive",
-                "description": "Tutorux local archive",
+                "ext": ["tutor"],
+                "name": "Tutorux Workspace",
+                "description": "Tutorux local tutoring workspace",
                 "role": "Editor"
             }
         ],
