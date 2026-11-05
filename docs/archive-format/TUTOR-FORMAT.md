@@ -100,6 +100,22 @@ search_fts(entity_type UNINDEXED, entity_id UNINDEXED, title, body,
 
 Each entity mutation deletes and reinserts its row. FTS5 `rank` orders results, and `snippet()` supplies preview text.
 
+## Session packages
+
+A session package uses the `.tutorpkg` extension and contains a SQLite database with the same schema. It holds one session plus its student, journal, observations, cues, materials, recordings, guides, evidence, links, goals, skills, referenced blobs, and search rows. Package metadata records `package_session_id` and `package_version`.
+
+Import creates new entity IDs, reuses an existing student only when the display name matches exactly, remaps evidence `source_id` values, and preserves the imported blobs.
+
+## Copies
+
+- A recovery copy is a verified SQLite snapshot.
+- A sanitized `.tutor` copy deletes recordings, transcripts, journals, observations, materials, AI jobs, and calendar accounts; masks student/session/guide/evidence text; clears notes; and rebuilds search rows for the remaining entities.
+- Encrypted sanitized copies keep the source passphrase.
+
+## OCR text
+
+OCR writes the recognized text to `materials.extracted_text` and updates the material search row. The database schema does not change for OCR.
+
 ## Encryption
 
 Optional SQLCipher encrypts the whole database, including indexes and blobs.
