@@ -629,22 +629,18 @@ impl<'a, 'b> FullParams<'a, 'b> {
         where
             F: FnMut() -> bool,
         {
-            let user_data = &mut *(user_data as *mut F);
+            let user_data = &mut *(user_data as *mut Box<dyn FnMut() -> bool>);
             user_data()
         }
 
         match closure.into() {
             Some(closure) => {
-                // Stable address
-                let closure = Box::new(closure) as Box<dyn FnMut() -> bool>;
-                // Thin pointer
-                let closure = Box::new(closure);
-                // Raw pointer
-                let closure = Box::into_raw(closure);
-
+                let closure: Box<dyn FnMut() -> bool> = Box::new(closure);
+                let closure = Arc::new(closure);
                 self.fp.abort_callback = Some(trampoline::<F>);
-                self.fp.abort_callback_user_data = closure as *mut c_void;
-                self.abort_callback_safe = None;
+                self.fp.abort_callback_user_data =
+                    Arc::as_ptr(&closure) as *mut c_void;
+                self.abort_callback_safe = Some(closure);
             }
             None => {
                 self.fp.abort_callback = None;
