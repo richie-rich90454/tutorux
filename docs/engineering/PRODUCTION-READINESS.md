@@ -28,9 +28,10 @@ cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --lib
 pnpm exec tauri build --no-bundle
+pnpm run desktop:build
 ```
 
-All pass as of the latest implementation pass. The release binary was launched and loaded embedded assets from `https://tauri.localhost`.
+All pass as of the latest implementation pass. The packaged binary was launched, loaded embedded assets from `https://tauri.localhost`, and completed the route and workspace smoke test. `desktop:build` produced the MSI, NSIS setup, and portable EXE under `release/`.
 
 ## External qualification required
 
