@@ -1,75 +1,142 @@
 # Tutorux architecture
 
-Tutorux is a local-first tutoring workspace implemented in TypeScript, SolidJS, Vite, Tauri 2, and Rust. The browser and desktop applications share the same archive engine, domain rules, and UI.
+Tutorux is a local-first desktop tutoring workspace implemented in SolidJS, TypeScript, Vite, Tauri 2, Rust, and SQLite. One `.tutor` file is the workspace.
 
 ```mermaid
 flowchart LR
-  UI[SolidJS interface] --> DOMAIN[Domain record rules]
-  UI --> ARCH[Archive format and snapshots]
-  UI --> PORT[Archive platform contract]
-  CLI[Rust CLI adapter] --> RUSTCORE[Rust archive and domain core]
-  WEB[Static browser adapter] --> PORT
-  DESKTOP[Tauri adapter] --> PORT
-  PORT --> WEB
-  PORT --> DESKTOP
-  DESKTOP --> RUST[Native file access, capture, and AI transport]
-  ARCH --> SOURCE[Bounded byte sources]
+  UI[SolidJS shell] --> API[Typed Tauri client]
+  API --> HOST[Rust desktop host]
+  HOST --> STORE[Workspace store]
+  STORE --> DB[SQLite .tutor file]
+  STORE --> BLOBS[Compressed chunk store]
+  STORE --> FTS[FTS5 search]
+  HOST --> NATIVE[Capture, Whisper, local GGUF, cloud transport]
 ```
 
-## Modules
+## Layers
 
-- `frontend/archive/format.ts` owns v1 header, record-frame, payload, checksum, and BLOB encoding. Integer fields whose on-disk widths exceed JavaScript's safe integer range use `bigint`.
-- `frontend/archive/archive.ts` opens snapshots, validates commit/index structure, resolves records, creates archives, appends immutable generations, and verifies every current primary record plus secondary indexes, asset manifests, guide sources, credential placement, and physical frame spans. It reads audio-chunk metadata through the session/track index without loading PCM blobs.
-- `frontend/archive/source.ts` defines bounded byte reads and browser/memory/composite sources.
-- `frontend/domain/records.ts` creates and updates students, sessions, and journal records while preserving unknown fields and validating UTF-8 bounds. `domain/annotations.ts` validates timestamped observations. `domain/transcript.ts` parses text/SRT/VTT, writes cue records, and supports review, split/merge, history, and export.
-- `frontend/domain/audio.ts` validates indexed PCM timelines, fills gaps with silence, builds bounded playback previews, and streams full-track WAV/RF64 exports. `domain/wav.ts` imports RIFF/WAVE audio in bounded chunks with durable recovery state. `domain/audio-mix.ts` mixes 2–8 tracks incrementally.
-- `frontend/domain/assets.ts` writes 8 MiB content-addressed asset chunks and verifies hash, size, and order before preview or export. `domain/evidence.ts` extracts and validates source-backed evidence and graph edges. `domain/guides.ts` reads and writes the guide section/block schema, applies template overrides, validates citations, and renders Markdown/HTML/Word/PDF exports.
-- `frontend/platform/types.ts` defines the browser/desktop file contract. `browser.ts` handles pickers and downloads; `tauri.ts` uses native dialogs, bounded reads, launch-file handoff, menu events, and native exports.
-- `frontend/platform/synchronized-audio.ts` adapts native synchronized capture events, preserving rate, channel count, sample format, gaps, and device-discontinuity markers before archive commits.
-- `frontend/main.tsx` assembles the workspace and owns archive state. If a save detects that the selected file changed outside Tutorux, the current in-memory work remains available and every save action offers a separate copy instead of overwriting that file. `frontend/lazy-components.ts` loads route pages and larger panels on demand; pages such as `RecordPage.tsx`, `TranscriptPage.tsx`, `EvidencePage.tsx`, and `AssetPage.tsx` live in separate modules. `shared-ui.tsx` and `shared-utils.ts` hold cross-page presentation and formatting helpers. The primary navigation includes Journal, Students, Sessions, Record, and Materials; secondary workspaces remain in More.
-- `src-tauri/src/core/cli/` is the standalone CLI adapter. It calls the same Rust archive and domain core used by the desktop host, and the in-app console executes that router in-process.
-- `src-tauri/src/main.rs` is the Rust host: authorized archive range reads, staged saves, single-instance `.tux` launch routing, native menus, credential storage, synchronized audio capture, Whisper, cloud AI transport, and in-process GGUF inference. Platform modules under `src-tauri/src/platform/` implement microphone, system, and application capture.
-- The desktop executable is one process. `llama-cpp-2` and `whisper-rs` are linked together; the vendored `whisper-rs-sys` prefixes whisper.cpp's `ggml`/`gguf` symbols during its CMake build, and the vendored `whisper-rs` calls the prefixed log setter. The multilingual Whisper Base Q5_1 model is embedded as executable data and loaded from memory for full-track and live transcription. The frontend assets are embedded; no Node runtime, helper sidecar, or self-extracted runtime directory is used by the desktop app. Per-user state directories hold archive-lock and detached-recording control files. Compressed-audio import uses flat temporary files in the OS temp location and cleans them up; transcription does not create temporary files.
+### `frontend/app`
 
-## Dependency direction
+The application shell. It owns:
 
-The TypeScript domain layer depends only on ordinary TypeScript. Archive format code depends on byte sources and format utilities, not SolidJS, Tauri, or Node UI state. Platform adapters implement file operations and the reviewed AI transport boundary. The UI coordinates those shared modules at its boundaries. The Rust CLI and desktop host share one Rust core; the CLI is a second adapter over that core, not a second implementation of the archive engine.
+- the sidebar and mobile drawer;
+- hash routing and route focus;
+- the workspace provider and archive lifecycle;
+- the command palette;
+- the native-menu event listener;
+- the welcome screen and saved-workspace reopening.
 
-Vite selects `browser.ts` for the static build and `tauri.ts` for the desktop build through the `@platform` alias. The web bundle does not include Tauri APIs. The native host is accessed only from the desktop adapter.
+No page reads an archive file directly.
 
-Vite 8 uses Rolldown with entry-aware vendor and initial-code splitting. Route pages and their styles are also lazy-loaded, while PDF and cryptography code load only when the corresponding features need them. The default 500 kB chunk warning remains enabled; `vite.config.ts` splits the initial code instead of raising that limit. The date picker and audio/video transports render app-owned controls rather than platform-specific browser widgets. The Windows Tauri window disables WebView2 general autofill so saved address and contact suggestions do not cover application inputs.
+### `frontend/design-system`
 
-Tailwind CSS v4 is generated by `@tailwindcss/vite`. `frontend/styles.css` maps the shared light/dark palette and font tokens into `@theme`; component styles are declared as utility strings in per-component `.tailwind.tsx` maps and applied by `twClasses`/`twUtilities` from TSX. The maps retain utility styles beside each component and let Tailwind scan and split them with their lazy-loaded pages. No component stylesheet remains. The small global stylesheet contains Tailwind setup, font faces, keyframes, print page settings, and reduced-motion rules.
+The shared UI vocabulary:
 
-## State and persistence
+- tokens and surface hierarchy;
+- buttons, fields, inputs, tabs, panels, badges, notices, empty states;
+- page headers and confirmation controls.
 
-The browser workspace is an in-memory snapshot. Record writes create a new append-only generation; users explicitly save that generation to the selected file. The desktop adapter streams archive reads and writes in bounded chunks. The File System Access API writes directly when available; the fallback produces a download.
+The visual system is deliberately flat: no gradients, backdrop blur, glass panels, accent bars, or all-caps labels.
 
-Preferences persist the system/light/dark appearance choice in the active archive's `ui.theme` setting. Browser local storage is only a fallback when the selected archive has no valid theme setting. Encryption keys, credentials, and record contents never leave the archive or the operating-system credential store.
+### `frontend/features`
 
-Session and journal notes remain in legacy-compatible `journal-notes` records. The editor reads and writes ordered, typed blocks, keeps their IDs stable, preserves unknown block kinds, and stores removed blocks for Trash recovery.
+Feature-owned screens and workflows:
 
-## Error handling and security boundaries
+- `today` — daily overview and continuation state;
+- `students` — list, profile, goals, skills, evidence, materials, guides, reports;
+- `sessions` — list, session detail, capture, transcript, notes, materials, evidence, guide;
+- `schedule` — schedule series, generated sessions, ICS import/export;
+- `materials` — files, links, previews;
+- `guides` — list, editor, templates, export;
+- `evidence` — evidence records and approval;
+- `assistant` — cloud/local AI tasks and provider setup;
+- `archive` — health, backup, Trash;
+- `settings` — appearance, workspace details, shortcuts, encryption, mode.
 
-Archive reads validate source ranges before touching a file. The parser checks header/record CRCs, bounded payload sizes, index depth, frame boundaries, commit roots, and record identity. `archive verify --full` decodes current records, verifies secondary indexes and asset manifests, checks citations and credential placement, and rejects overlapping frames. Domain input has size and control-character limits. Tauri file reads require an opaque token issued after a picker selection and cap each range request at 4 MiB; the TypeScript adapter composes larger frames from bounded reads. Saves use a same-directory temporary file and restore the old destination if publication fails.
+Features use `frontend/api/client.ts`, not Tauri internals.
 
-Encrypted archives support creation, unlock, edits, rotation, verification, recovery, repair, compaction, sanitization, and backups. Credential records are accepted only in encrypted archives. Sanitized output is staged, fully verified, and atomically published. See [the feature inventory](migration/feature-inventory.md) for the completed parity record and remaining platform qualification.
+### `frontend/api`
 
-## Performance-sensitive paths
+The typed boundary:
 
-- Archive reads are positional and bounded; opening a large archive does not copy the whole file into JavaScript memory.
-- Archive writes reuse original bytes and append a new index/commit generation.
-- Desktop Save stages bytes beside the selected archive, syncs and revalidates the staged file under the archive lock, then publishes it without replacing a destination created concurrently. Windows uses `MoveFileW` for a no-replace same-volume move; a recovery copy is kept if publication or restoration is interrupted. A stale archive remains untouched and the in-memory work can be saved as a separate copy.
-- The primary record index is loaded into a map for predictable lookups; building a generation sorts current entries once.
-- Audio import, mix, waveform, and export paths stream in bounded chunks.
-- Browser fallback export is capped at 512 MiB because it creates a Blob. Desktop and Node paths stream output in 1 MiB chunks.
+- `client.ts` wraps every workspace command;
+- `types.ts` mirrors the Rust DTOs;
+- `ai.ts` builds reviewed cloud requests and handles local GGUF;
+- `embedded-ai.ts` owns local GGUF model inspection/loading and token streaming;
+- `whisper.ts` decodes recorded audio, resamples to 16 kHz mono WAV, and calls the bundled Whisper runtime.
 
-The [TypeScript benchmark report](performance/TYPESCRIPT-BASELINE.md) records the measured baseline.
+### `src-tauri/src/store`
 
-## Verification strategy
+The persistent workspace:
 
-Vitest covers archive framing, snapshots, verification, maintenance, domain rules, audio transforms, and AI packaging from `tests/frontend/`. Playwright covers browser create/edit/save/reopen, audio, AI, encrypted-archive, session-package, and workspace flows in `tests/e2e/`. The Rust CLI contract corpus in `tests/rust-parity/` exercises every registered command against the standalone binary. CI runs type checking, linting, formatting, unit tests, browser tests, the static build, and the Tauri package on Windows, macOS, and Linux.
+- `schema.rs` — SQLite schema, FTS5, indexes;
+- `repo.rs` — students, sessions, workspace summary, recurring-session queries;
+- `content.rs` — journal, observations, transcript cues, guides, evidence, goals, skills;
+- `schedule.rs` — recurring lesson materialization;
+- `materials.rs` — file import, link records, chunked reads, text indexing;
+- `recordings.rs` — recording metadata and compressed audio chunks;
+- `search.rs` — FTS5 query handling;
+- `backup.rs` — SQLite online backup with encryption preservation and integrity check;
+- `trash.rs` — 90-day Trash listing, restore, permanent deletion;
+- `settings.rs` — key/value settings and workspace rename;
+- `mod.rs` — the Tauri command surface.
 
-## Why this stack
+### `src-tauri/src/host.rs`
 
-The application uses standard TypeScript, SolidJS, Vite, and Tauri APIs with explicit module boundaries. Business rules stay in inspectable TypeScript, the same UI runs as a static browser app and a desktop app, and Rust handles native file, audio, and network access. The goal is small local changes with ordinary tooling.
+The Tauri composition root. It manages the workspace state, native menu, file launch handoff, dialog plugin, credential commands, AI transport, Whisper, local GGUF, and native capture commands.
+
+## Data flow
+
+1. A page calls a typed function in `frontend/api/client.ts`.
+2. Tauri invokes the matching Rust command.
+3. The command locks the single `WorkspaceDb`.
+4. The store validates input and executes a SQL statement or transaction.
+5. FTS rows are updated in the same operation.
+6. The command returns a typed DTO.
+7. Solid signals/resources update the affected view.
+
+Writes are committed to SQLite immediately. There is no separate “save the whole archive” step. Manual backups are explicit.
+
+## Persistence and consistency
+
+- `PRAGMA journal_mode = WAL` allows incremental writes.
+- `PRAGMA synchronous = FULL` favors durability.
+- One writer connection is serialized behind a mutex.
+- Keyset-friendly indexes cover session time, student time, observations, cues, and trash state.
+- Soft deletion uses `deleted_at`; the UI keeps 90 days of recoverable items.
+- Backups use the SQLite online backup API and run an integrity check before returning success.
+- Encrypted workspaces use SQLCipher. The in-memory key is zeroized on close. Backups apply the same key to the destination.
+
+## Search
+
+A single FTS5 table indexes students, sessions, journal entries, observations, transcript cues, materials, guides, and evidence. Each entity rewrite replaces its indexed row. Queries are tokenized and quoted before `MATCH`, then ranked with FTS5 `rank`.
+
+## Media
+
+- Fixed 4 MiB chunks.
+- zstd compression when it reduces size; raw storage otherwise.
+- SHA-256 content hashes deduplicate identical chunks.
+- Recorded audio is stored as compressed chunks with recording metadata.
+- Material previews are capped in memory; large media is stored without a full-file load.
+- Waveforms and thumbnails are generated in the UI only when needed.
+
+## Security boundaries
+
+- Archive and material paths come from native dialogs, not arbitrary user strings.
+- AI credentials are stored in the OS credential store.
+- Cloud AI requests require a review checkbox; local GGUF requests never leave the device.
+- SQLCipher protects an encrypted workspace at rest.
+- The old browser adapter, `.tux` parser, CLI, console, and associated native file-authorization surface were removed.
+
+## Performance direction
+
+The store is designed for large workspaces:
+
+- no full archive reload after each edit;
+- normalized row queries instead of field-map scans;
+- FTS5 instead of linear text scans;
+- bounded BLOB reads;
+- keyset-friendly indexes;
+- UI resources scoped to the active route.
+
+A 100 GB qualification run remains future work. See [Performance design](performance/TYPESCRIPT-BASELINE.md).
