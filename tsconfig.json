@@ -20,17 +20,13 @@
         "useUnknownInCatchVariables": true,
         "noEmit": true,
         "skipLibCheck": true,
-        "types": ["vite/client", "vitest/globals", "node"],
-        "paths": {
-            "@platform": ["./frontend/platform/browser.ts"]
-        }
+        "types": ["vite/client", "vitest/globals", "node"]
     },
     "include": [
         "frontend/**/*.ts",
         "frontend/**/*.tsx",
         "scripts/**/*.ts",
         "tests/**/*.ts",
-        "vite.config.ts",
-        "playwright.config.ts"
+        "vite.config.ts"
     ]
 }
