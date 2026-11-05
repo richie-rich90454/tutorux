@@ -1,65 +1,75 @@
-# TypeScript performance baseline
+# Performance design and baseline
 
-These measurements describe the current TypeScript application and its toolchain.
+The performance model changed with the SQLite rewrite. The application no longer serializes, verifies, or copies a whole custom archive on every save.
 
-## Current reproducible workloads
+## Current measurements
 
-Run:
+Desktop frontend production build:
 
-```sh
-pnpm run benchmark:archive
-pnpm run build
+```text
+index.html                  1.02 kB
+CSS                        29.34 kB  (6.56 kB gzip)
+vendor JS                  26.60 kB  (10.26 kB gzip)
+main JS                   189.49 kB  (47.11 kB gzip)
+fonts                      1.71 MB   (three local Noto Sans faces)
 ```
 
-The archive benchmark builds an in-memory v1 archive with 10,000 student records in one append-only generation, then lists and decodes those records. It prints the Node/V8 version, elapsed times, final archive bytes, and resident memory delta. It is a smoke baseline for repeatable local comparison.
+The frontend entry is small because the archive, domain, AI packaging, PDF, and audio engines were removed from the browser bundle.
 
-The Vite production build reports uncompressed and gzip JavaScript/CSS sizes. Those are build artifact measurements, not runtime startup or RSS. Browser and desktop startup measurements are not yet established.
+## Why the new model is faster
 
-## Baseline evidence
+- SQLite writes only changed pages, not a new archive image.
+- Reads use indexed row queries and projections.
+- FTS5 handles global search instead of scanning every record field.
+- Compressed BLOB chunks are read on demand.
+- The UI does not rebuild a 36-field workspace object after every mutation.
+- Routes load only the active feature page.
+- The command palette debounces search.
 
-The first recorded build emitted roughly 103 kB of web JavaScript before gzip. The exact size changes with the current source and dependency lockfile; rerun `pnpm run build` for the current number.
+## Index coverage
 
-The desktop build lazy-loads page modules and their page styles, and loads PDF and cryptography code only when needed. A Windows desktop Vite build on 2026-11-01 using Rolldown entry-aware splitting emitted no chunk-size warning. Its largest JavaScript chunk was the 431.01 kB PDF vendor chunk (129.98 kB gzip); the largest route chunk was the 167.41 kB transcript page (45.58 kB gzip). The initial UI's largest shared chunk was 151.45 kB. The lazy cryptography dependency was split into 413.45 kB and 120.70 kB vendor chunks. `vite.config.ts` keeps Vite's default 500 kB warning limit. These are one-build artifact measurements, not runtime startup measurements; re-run `pnpm run build:desktop` for current sizes.
+The schema indexes:
 
-One Windows run on 2026-10-26 with Node v24.13.0 / V8 13.6.233.17-node.37 produced:
+- live students by name;
+- live sessions by student and start time;
+- sessions by time;
+- schedule events by start and student;
+- journal entries by session and student;
+- observations by session and timestamp;
+- transcript cues by session and timestamp;
+- materials by session and student;
+- recordings by session and start time;
+- guides by student and session;
+- evidence by student and session;
+- goals and skills by student.
 
-| Workload                                        |            Result |
-| ----------------------------------------------- | ----------------: |
-| 10,000 student record archive size              |   4,941,968 bytes |
-| Create and open empty archive                   |           6.44 ms |
-| Append one generation containing 10,000 records |         556.72 ms |
-| Decode and list 10,000 records                  |         130.08 ms |
-| Process RSS delta during the run                | 133,070,848 bytes |
+## Large-workspace targets
 
-This is one in-memory run on the development machine, without warmup or repeated samples. The RSS delta includes Node/V8 runtime and allocations that have not been isolated; use it as a baseline, not as a stable memory budget.
+Targets for the pending 100 GB qualification:
 
-One compression-enabled run on 2026-10-27 used Windows x64 (NT 10.0.26200.0), an Intel Core Ultra 7 255H, Node v24.13.0, and V8 13.6.233.17-node.37:
+- open workspace metadata in under 500 ms;
+- session list and detail under 300 ms;
+- transcript page under 100 ms;
+- global search under 200 ms for common terms;
+- recording start under 200 ms;
+- normal memory use under 500 MB;
+- no full-file copy during a normal commit;
+- no crash at 100 GB.
 
-| Workload                                        |            Result |
-| ----------------------------------------------- | ----------------: |
-| 10,000 student record archive size              |   4,621,968 bytes |
-| Create and open empty archive                   |          14.40 ms |
-| Append one generation containing 10,000 records |       1,291.52 ms |
-| Decode and list 10,000 records                  |         293.02 ms |
-| Process RSS delta during the run                | 130,564,096 bytes |
+These are design targets, not measured results. The current verification suite does not include a 100 GB synthetic workspace.
 
-This single non-warmed sample produced an archive 320,000 bytes smaller than the prior run, while append time was about 2.3 times longer. Treat both measurements as directional until repeated runs use a warmed and otherwise identical workload.
+## Known bottlenecks
 
-The post-audit run on 2026-11-04 used the same Windows host, Node v24.13.0, and V8 13.6.233.17-node.37:
+- `material_read` loads a preview into memory and is capped; large media has no streaming protocol yet.
+- Full-audio Whisper decoding creates a 16 kHz mono WAV in memory.
+- A recording import sends compressed audio bytes through IPC in one call.
+- SQLite is serialized behind one writer mutex; long imports block other writes.
+- The session detail view currently loads all cues up to a 10,000-row cap.
 
-| Workload                                        |            Result |
-| ----------------------------------------------- | ----------------: |
-| 10,000 student record archive size              |   4,622,032 bytes |
-| Create and open empty archive                   |           7.85 ms |
-| Append one generation containing 10,000 records |         679.23 ms |
-| Decode and list 10,000 records                  |         174.48 ms |
-| Process RSS delta during the run                | 152,084,480 bytes |
+## Next performance work
 
-This run remained in the same archive size class as the compression-enabled baseline and completed within the existing suite time budget. The RSS delta is higher than the 2026-10-27 sample, so it is recorded as a directional smoke measurement rather than a memory budget.
-
-## Limits and next gates
-
-- Benchmarking is currently on Windows only.
-- Encryption, media, guide export, and large asset workloads still need repeatable benchmarks.
-- Browser fallback export materializes a Blob and is capped at 512 MiB.
-- Desktop/CLI archive reads and writes use bounded chunks; memory budgets still need measurements on Windows, macOS, and Linux.
+- Add a Tauri custom media protocol with HTTP range support.
+- Stream recording chunks from the capture worker directly into SQLite.
+- Windowed Whisper transcription instead of one full WAV payload.
+- Keyset pagination for transcript and material lists.
+- Record 100 GB synthetic fixtures and add Rust benchmarks.
