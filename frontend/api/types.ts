@@ -179,6 +179,7 @@ export interface Recording {
     startedAt: number;
     durationUs: number;
     byteSize: number;
+    tracks: string[];
     createdAt: number;
     updatedAt: number;
 }
@@ -251,6 +252,25 @@ export interface EvidenceInput {
     kind: string;
     statement: string;
     status: string;
+}
+
+export interface EvidenceLink {
+    id: string;
+    fromId: string;
+    toId: string;
+    relationship: string;
+    createdAt: number;
+}
+
+export interface EvidenceLinkInput {
+    fromId: string;
+    toId: string;
+    relationship: string;
+}
+
+export interface EvidenceGraph {
+    nodes: Evidence[];
+    links: EvidenceLink[];
 }
 
 export interface SkillRating {
@@ -327,4 +347,53 @@ export interface StudentDetail {
 export interface BackupResult {
     path: string;
     bytes: number;
+}
+
+export interface MaintenanceResult {
+    beforeBytes: number;
+    afterBytes: number;
+    integrity: string;
+}
+
+export interface PackageResult {
+    path: string;
+    bytes: number;
+    sessionId: string;
+    title: string;
+}
+
+export interface ImportedSession {
+    sessionId: string;
+    studentId: string | null;
+    title: string;
+}
+
+export interface Reminder {
+    id: string;
+    entityType: string;
+    title: string;
+    studentName: string;
+    startAt: number;
+    minutesUntil: number;
+}
+
+export interface CalendarClientStatus {
+    provider: string;
+    hasClientId: boolean;
+    hasClientSecret: boolean;
+}
+
+export interface CalendarAccount {
+    id: string;
+    provider: string;
+    accountEmail: string;
+    lastSyncAt: number;
+    eventCount: number;
+}
+
+export interface CalendarSyncResult {
+    accountId: string;
+    created: number;
+    updated: number;
+    removed: number;
 }
