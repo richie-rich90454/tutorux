@@ -60,14 +60,21 @@ The desktop bundle registers `.tutor` files as Tutorux Workspaces. Opening a `.t
 - [ ] `tauri build --no-bundle` succeeds and the release application opens with embedded assets.
 - [ ] `pnpm run desktop:build` succeeds and writes the MSI, NSIS setup, and portable EXE to `release/`.
 - [ ] Create, save, reopen, encrypt, unlock, rekey, and back up a workspace.
-- [ ] Record audio, stop, play, and transcribe with the bundled Whisper model.
+- [ ] Record audio, stop, play the mixer, attach an audio file, and transcribe real speech with the bundled Whisper model.
+- [ ] Run OCR on a printed image and confirm the extracted text is searchable.
+- [ ] Export and import a `.tutorpkg` session package.
+- [ ] Run compaction, reindexing, backup, recovery copy, and a sanitized copy.
+- [ ] Verify reminders at the configured lead time.
+- [ ] Connect Google, Microsoft, and Apple CalDAV accounts with real credentials and sync events.
 - [ ] Run one cloud AI request with a real provider key and one local GGUF request.
 - [ ] Verify `.tutor` file association and launch handoff.
 - [ ] Confirm no browser build, `.tux` format, or CLI artifacts are produced.
+- [ ] Confirm the OCR model attribution is included in the release.
 
 ## Known qualification gaps
 
-- Google Calendar and Outlook OAuth are not implemented; ICS import/export is.
-- OCR, mobile-qualified capture, and 100 GB stress qualification remain future work.
-- Advanced archive repair/compaction/recovery and sanitized copies are not exposed in the new UI.
+- Google/Microsoft OAuth and Apple CalDAV require external accounts and were not live-qualified here.
+- Scanned PDF OCR is not implemented; image OCR is.
+- Mobile hardware capture, 100 GB stress qualification, and macOS/Linux device capture matrices remain future work.
+- Archive recovery copies a healthy workspace; it does not salvage rows from a physically corrupted SQLite file.
 - Linux/macOS native capture qualification still needs real device matrices.
