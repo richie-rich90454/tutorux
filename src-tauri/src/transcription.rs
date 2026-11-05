@@ -241,31 +241,67 @@ fn transcribe(
 }
 
 fn whisper_pcm_samples(wav: &[u8]) -> Result<Vec<f32>, String> {
-    if wav.len() < 46
+    if wav.len() < 44
         || wav.len() > MAX_AUDIO_BYTES
         || &wav[..4] != b"RIFF"
         || &wav[8..12] != b"WAVE"
-        || &wav[12..16] != b"fmt "
-        || &wav[36..40] != b"data"
     {
         return Err("Whisper audio must be a bounded PCM WAV file.".to_owned());
     }
-    let format = u16::from_le_bytes([wav[20], wav[21]]);
-    let channels = u16::from_le_bytes([wav[22], wav[23]]);
-    let sample_rate = u32::from_le_bytes([wav[24], wav[25], wav[26], wav[27]]);
-    let bits_per_sample = u16::from_le_bytes([wav[34], wav[35]]);
-    let data_len = u32::from_le_bytes([wav[40], wav[41], wav[42], wav[43]]) as usize;
-    if format != 1
+    let mut offset = 12usize;
+    let mut format = None;
+    let mut data = None;
+    while offset + 8 <= wav.len() {
+        let id = &wav[offset..offset + 4];
+        let size = u32::from_le_bytes([
+            wav[offset + 4],
+            wav[offset + 5],
+            wav[offset + 6],
+            wav[offset + 7],
+        ]) as usize;
+        let start = offset + 8;
+        let end = start
+            .checked_add(size)
+            .ok_or_else(|| "The WAV file is invalid.".to_owned())?;
+        if end > wav.len() {
+            return Err("The WAV file is truncated.".to_owned());
+        }
+        if id == b"fmt " && size >= 16 {
+            format = Some((
+                u16::from_le_bytes([wav[start], wav[start + 1]]),
+                u16::from_le_bytes([wav[start + 2], wav[start + 3]]),
+                u32::from_le_bytes([
+                    wav[start + 4],
+                    wav[start + 5],
+                    wav[start + 6],
+                    wav[start + 7],
+                ]),
+                u16::from_le_bytes([wav[start + 14], wav[start + 15]]),
+            ));
+        } else if id == b"data" {
+            data = Some((start, size));
+        }
+        if format.is_some() && data.is_some() {
+            break;
+        }
+        offset = end + (size % 2);
+    }
+    let Some((audio_format, channels, sample_rate, bits_per_sample)) = format else {
+        return Err("The WAV file does not contain a PCM format chunk.".to_owned());
+    };
+    let Some((data_start, data_len)) = data else {
+        return Err("The WAV file does not contain audio samples.".to_owned());
+    };
+    if audio_format != 1
         || channels != 1
         || sample_rate != 16_000
         || bits_per_sample != 16
         || data_len == 0
         || !data_len.is_multiple_of(2)
-        || data_len != wav.len() - 44
     {
         return Err("Whisper audio must contain 16 kHz mono 16-bit PCM samples.".to_owned());
     }
-    Ok(wav[44..]
+    Ok(wav[data_start..data_start + data_len]
         .chunks_exact(2)
         .map(|sample| i16::from_le_bytes([sample[0], sample[1]]) as f32 / 32_768.0)
         .collect())
@@ -523,5 +559,22 @@ mod tests {
         let parsed: serde_json::Value =
             serde_json::from_str(&output.json).expect("native transcription emits JSON");
         assert!(parsed["transcription"].is_array());
+    }
+
+    #[test]
+    fn embedded_model_transcribes_clear_speech() {
+        let wav = include_bytes!("../tests/fixtures/jfk.wav").to_vec();
+        let output = transcribe_embedded(wav, "en".to_owned(), Arc::new(AtomicBool::new(false)))
+            .expect("bundled model transcribes speech");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&output.json).expect("native transcription emits JSON");
+        let text = parsed["transcription"]
+            .as_array()
+            .expect("transcription array")
+            .iter()
+            .filter_map(|segment| segment["text"].as_str())
+            .collect::<String>()
+            .to_lowercase();
+        assert!(text.contains("country"), "transcript was {text:?}");
     }
 }
