@@ -14,9 +14,9 @@ Plain workspaces are ordinary SQLite databases. When the user enables the passph
 
 ## Credentials
 
-AI provider keys are stored in the operating-system credential store through `keyring`. They are not written to the workspace file.
+AI provider keys are stored in the operating-system credential store through `keyring`. Calendar OAuth tokens, Google/Microsoft client secrets, and CalDAV app-specific passwords use the same credential store. They are not written to the workspace file.
 
-Local GGUF and Whisper models stay on the device. Local generation and transcription do not upload lesson content.
+Local GGUF, Whisper, and OCR models stay on the device. Local generation, transcription, and OCR do not upload lesson content.
 
 ## Cloud AI
 
@@ -29,6 +29,17 @@ Cloud AI requests use the native Rust transport, not direct browser fetches. Bef
 - redirects are disabled and request/response sizes are bounded.
 
 Supported cloud providers include OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek, Groq, Mistral, xAI, Together, Fireworks, Z.AI, MiniMax, Alibaba Cloud/Qwen, Moonshot, NVIDIA, Cerebras, SambaNova, Novita, Nebius, DeepInfra, SiliconFlow, and others in the provider registry. Availability depends on a valid key and provider route.
+
+## Calendar credentials
+
+- Google and Microsoft OAuth client secrets, access tokens, and refresh tokens are stored in the OS credential store.
+- Apple Calendar uses a CalDAV app-specific password, also in the OS credential store.
+- The workspace database stores calendar account IDs, provider names, email labels, and imported event metadata, not tokens.
+- Calendar sync fetches only the configured account and writes imported events to the local schedule.
+
+## OCR
+
+OCR is fully local. The bundled detection and recognition models are embedded in the application. Images are decoded in memory, capped at 3200 pixels on the longest edge, and the extracted text is written to the workspace. No OCR request leaves the device.
 
 ## Backups
 
