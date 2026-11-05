@@ -58,7 +58,8 @@ The desktop bundle registers `.tutor` files as Tutorux Workspaces. Opening a `.t
 - [ ] Clippy passes with all targets and features.
 - [ ] Rust tests pass.
 - [ ] `tauri build --no-bundle` succeeds and the release application opens with embedded assets.
-- [ ] Create, save, reopen, encrypt, unlock, and back up a workspace.
+- [ ] `pnpm run desktop:build` succeeds and writes the MSI, NSIS setup, and portable EXE to `release/`.
+- [ ] Create, save, reopen, encrypt, unlock, rekey, and back up a workspace.
 - [ ] Record audio, stop, play, and transcribe with the bundled Whisper model.
 - [ ] Run one cloud AI request with a real provider key and one local GGUF request.
 - [ ] Verify `.tutor` file association and launch handoff.
