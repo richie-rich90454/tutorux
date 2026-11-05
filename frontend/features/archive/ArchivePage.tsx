@@ -2,6 +2,7 @@ import { For, Show, createResource, createSignal, type JSX } from "solid-js";
 import {
     backup as backupApi,
     chooseBackupFile,
+    chooseWorkingCopy,
     errorMessage,
     trash as trashApi,
     workspace as workspaceApi,
@@ -28,6 +29,7 @@ export function ArchivePage(): JSX.Element {
     const [message, setMessage] = createSignal("");
     const [checking, setChecking] = createSignal(false);
     const [backingUp, setBackingUp] = createSignal(false);
+    const [maintaining, setMaintaining] = createSignal("");
     const [summary, { refetch: refetchSummary }] = createResource(() => workspaceApi.summary());
     const [trash, { refetch: refetchTrash }] = createResource(() => trashApi.list());
 
@@ -60,6 +62,73 @@ export function ArchivePage(): JSX.Element {
             setError(errorMessage(cause));
         } finally {
             setBackingUp(false);
+        }
+    }
+
+    async function compact(): Promise<void> {
+        setError("");
+        setMaintaining("compact");
+        try {
+            const result = await workspaceApi.compact();
+            setMessage(
+                `Workspace compacted from ${formatBytes(result.beforeBytes)} to ${formatBytes(result.afterBytes)}. Integrity: ${result.integrity}.`,
+            );
+            await refetchSummary();
+        } catch (cause) {
+            setError(errorMessage(cause));
+        } finally {
+            setMaintaining("");
+        }
+    }
+
+    async function reindex(): Promise<void> {
+        setError("");
+        setMaintaining("reindex");
+        try {
+            const result = await workspaceApi.reindex();
+            setMessage(`Indexes rebuilt. Integrity: ${result.integrity}.`);
+        } catch (cause) {
+            setError(errorMessage(cause));
+        } finally {
+            setMaintaining("");
+        }
+    }
+
+    async function recoveryCopy(): Promise<void> {
+        setError("");
+        setMaintaining("recovery");
+        try {
+            const path = await chooseWorkingCopy(
+                summary()?.name ?? "workspace",
+                "Create recovery copy",
+                "recovery",
+            );
+            if (!path) return;
+            const result = await workspaceApi.recoveryCopy(path);
+            setMessage(`Recovery copy created: ${result.path} (${formatBytes(result.bytes)}).`);
+        } catch (cause) {
+            setError(errorMessage(cause));
+        } finally {
+            setMaintaining("");
+        }
+    }
+
+    async function sanitizedCopy(): Promise<void> {
+        setError("");
+        setMaintaining("sanitized");
+        try {
+            const path = await chooseWorkingCopy(
+                summary()?.name ?? "workspace",
+                "Create sanitized copy",
+                "sanitized",
+            );
+            if (!path) return;
+            const result = await workspaceApi.sanitizedCopy(path);
+            setMessage(`Sanitized copy created: ${result.path} (${formatBytes(result.bytes)}).`);
+        } catch (cause) {
+            setError(errorMessage(cause));
+        } finally {
+            setMaintaining("");
         }
     }
 
@@ -243,13 +312,50 @@ export function ArchivePage(): JSX.Element {
                                 <Button size="sm" onClick={() => void check()}>
                                     Verify database
                                 </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={() => void compact()}
+                                    disabled={Boolean(maintaining())}
+                                >
+                                    {maintaining() === "compact"
+                                        ? "Compacting…"
+                                        : "Compact workspace"}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={() => void reindex()}
+                                    disabled={Boolean(maintaining())}
+                                >
+                                    {maintaining() === "reindex"
+                                        ? "Rebuilding…"
+                                        : "Rebuild search indexes"}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={() => void recoveryCopy()}
+                                    disabled={Boolean(maintaining())}
+                                >
+                                    {maintaining() === "recovery"
+                                        ? "Copying…"
+                                        : "Create recovery copy"}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={() => void sanitizedCopy()}
+                                    disabled={Boolean(maintaining())}
+                                >
+                                    {maintaining() === "sanitized"
+                                        ? "Sanitizing…"
+                                        : "Create sanitized copy"}
+                                </Button>
                                 <Button size="sm" onClick={() => void window.print()}>
                                     Print workspace summary
                                 </Button>
                                 <p class="m-0 text-[11px]">
-                                    Compaction, recovery, and passphrase rotation are applied
-                                    through the local maintenance service when an encrypted
-                                    workspace is available.
+                                    A sanitized copy removes recordings, transcripts, journals,
+                                    observations, materials, and AI jobs, masks student names, and
+                                    clears session notes. Encrypted workspaces keep their
+                                    passphrase.
                                 </p>
                             </div>
                         </Panel>
