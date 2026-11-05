@@ -205,8 +205,18 @@ pub struct Recording {
     pub started_at: i64,
     pub duration_us: i64,
     pub byte_size: i64,
+    pub tracks: Vec<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordingTrackInput {
+    pub track: String,
+    pub sample_rate: i64,
+    pub channels: i64,
+    pub bytes: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -289,6 +299,31 @@ pub struct EvidenceInput {
     pub kind: String,
     pub statement: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceLink {
+    pub id: String,
+    pub from_id: String,
+    pub to_id: String,
+    pub relationship: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceLinkInput {
+    pub from_id: String,
+    pub to_id: String,
+    pub relationship: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceGraph {
+    pub nodes: Vec<Evidence>,
+    pub links: Vec<EvidenceLink>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -396,6 +431,61 @@ pub struct SessionDetail {
 pub struct BackupResult {
     pub path: String,
     pub bytes: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MaintenanceResult {
+    pub before_bytes: i64,
+    pub after_bytes: i64,
+    pub integrity: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageResult {
+    pub path: String,
+    pub bytes: i64,
+    pub session_id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedSession {
+    pub session_id: String,
+    pub student_id: Option<String>,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reminder {
+    pub id: String,
+    pub entity_type: String,
+    pub title: String,
+    pub student_name: String,
+    pub start_at: i64,
+    pub minutes_until: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarAccount {
+    pub id: String,
+    pub provider: String,
+    pub account_email: String,
+    pub last_sync_at: i64,
+    pub event_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CalendarSyncResult {
+    pub account_id: String,
+    pub created: usize,
+    pub updated: usize,
+    pub removed: usize,
 }
 
 pub fn unix_ms() -> i64 {
