@@ -2,6 +2,7 @@ import { Show, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { CommandPalette } from "./shell/CommandPalette";
+import { ReminderWatcher } from "./ReminderWatcher";
 import { Sidebar } from "./shell/Sidebar";
 import { Welcome } from "./Welcome";
 import { navigate, startRouter, useRoute } from "./router";
@@ -121,6 +122,7 @@ export function App(): JSX.Element {
 
     return (
         <Show when={workspace.summary()} fallback={<Welcome />}>
+            <ReminderWatcher />
             <div class="flex h-dvh min-h-0 overflow-hidden bg-canvas">
                 <Sidebar
                     onOpenPalette={() => setPaletteOpen(true)}
