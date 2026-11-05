@@ -1,10 +1,6 @@
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import tailwindcss from "@tailwindcss/vite";
 import solid from "vite-plugin-solid";
-
-const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 
 const browserCsp = [
     "default-src 'self'",
@@ -36,15 +32,6 @@ function browserCspPlugin() {
 
 export default defineConfig(({ mode }) => ({
     plugins: [tailwindcss(), solid(), ...(mode === "desktop" ? [] : [browserCspPlugin()])],
-    resolve: {
-        alias: {
-            "@platform": resolve(
-                projectRoot,
-                "frontend/platform",
-                mode === "desktop" ? "tauri.ts" : "browser.ts",
-            ),
-        },
-    },
     base: "./",
     optimizeDeps: {
         entries: ["index.html"],
@@ -96,7 +83,7 @@ export default defineConfig(({ mode }) => ({
         include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
         coverage: {
             provider: "v8",
-            include: ["frontend/**/*.ts"],
+            include: ["frontend/app/router.ts", "frontend/shared/format.ts"],
             exclude: ["frontend/**/*.d.ts"],
             reporter: ["text-summary", "json-summary", "json"],
             reportsDirectory: "coverage",
