@@ -2,19 +2,29 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type {
     BackupResult,
+    CalendarAccount,
+    CalendarClientStatus,
+    CalendarSyncResult,
     Evidence,
+    EvidenceGraph,
     EvidenceInput,
+    EvidenceLink,
+    EvidenceLinkInput,
     Goal,
     GoalInput,
     Guide,
     GuideInput,
+    ImportedSession,
     JournalEntry,
     JournalInput,
     LinkInput,
+    MaintenanceResult,
     Material,
     Observation,
     ObservationInput,
+    PackageResult,
     Recording,
+    Reminder,
     ScheduleEvent,
     ScheduleInput,
     SearchHit,
@@ -106,6 +116,35 @@ export async function chooseBackupFile(defaultName: string): Promise<string | nu
     });
 }
 
+export async function chooseWorkingCopy(
+    defaultName: string,
+    title: string,
+    suffix: string,
+): Promise<string | null> {
+    return save({
+        title,
+        defaultPath: `${defaultName.replace(/[<>:"/\\|?*]+/gu, "-").trim() || "Workspace"}-${suffix}.tutor`,
+        filters: [{ name: "Tutorux workspace", extensions: ["tutor"] }],
+    });
+}
+
+export async function chooseSessionPackageExport(defaultName: string): Promise<string | null> {
+    return save({
+        title: "Export session package",
+        defaultPath: `${defaultName.replace(/[<>:"/\\|?*]+/gu, "-").trim() || "Session"}.tutorpkg`,
+        filters: [{ name: "Tutorux session package", extensions: ["tutorpkg"] }],
+    });
+}
+
+export async function chooseSessionPackageImport(): Promise<string | null> {
+    const selected = await open({
+        title: "Import session package",
+        multiple: false,
+        filters: [{ name: "Tutorux session package", extensions: ["tutorpkg"] }],
+    });
+    return typeof selected === "string" ? selected : null;
+}
+
 export async function chooseTextExport(
     defaultName: string,
     extension: string,
@@ -134,6 +173,10 @@ export const workspace = {
     rekey: (newPassphrase: string) =>
         invoke<WorkspaceSummary>("workspace_rekey", { newPassphrase }),
     check: () => invoke<string>("workspace_check"),
+    compact: () => invoke<MaintenanceResult>("workspace_compact"),
+    reindex: () => invoke<MaintenanceResult>("workspace_reindex"),
+    recoveryCopy: (path: string) => invoke<BackupResult>("workspace_recovery_copy", { path }),
+    sanitizedCopy: (path: string) => invoke<BackupResult>("workspace_sanitized_copy", { path }),
 };
 
 export const today = {
@@ -158,6 +201,9 @@ export const sessions = {
     remove: (id: string) => invoke<void>("session_delete", { id }),
     start: (id: string) => invoke<Session>("session_start", { id }),
     detail: (id: string) => invoke<SessionDetail>("session_detail", { id }),
+    exportPackage: (sessionId: string, path: string) =>
+        invoke<PackageResult>("session_package_export", { sessionId, path }),
+    importPackage: (path: string) => invoke<ImportedSession>("session_package_import", { path }),
 };
 
 export const schedule = {
@@ -209,6 +255,7 @@ export const materials = {
         const bytes = await invoke<number[]>("material_read", { id, maximumBytes });
         return Uint8Array.from(bytes);
     },
+    ocr: (id: string) => invoke<Material>("material_ocr", { id }),
 };
 
 export const recordings = {
@@ -222,7 +269,23 @@ export const recordings = {
         durationUs: number;
         bytes: number[];
     }) => invoke<Recording>("recording_import", input),
+    importTracks: (input: {
+        sessionId: string;
+        title: string;
+        source: string;
+        sampleRate: number;
+        channels: number;
+        durationUs: number;
+        tracks: Array<{
+            track: string;
+            sampleRate: number;
+            channels: number;
+            bytes: number[];
+        }>;
+    }) => invoke<Recording>("recording_import_tracks", input),
     read: (id: string) => invoke<number[]>("recording_read", { id }),
+    readTrack: (id: string, track: string) =>
+        invoke<number[]>("recording_read_track", { id, track }),
     remove: (id: string) => invoke<void>("recording_delete", { id }),
 };
 
@@ -238,10 +301,14 @@ export const guides = {
 export const evidence = {
     list: (studentId: string | null = null, sessionId: string | null = null) =>
         invoke<Evidence[]>("evidence_list", { studentId, sessionId }),
+    graph: (studentId: string | null = null, sessionId: string | null = null) =>
+        invoke<EvidenceGraph>("evidence_graph", { studentId, sessionId }),
     create: (input: EvidenceInput) => invoke<Evidence>("evidence_create", { input }),
     update: (id: string, input: EvidenceInput) =>
         invoke<Evidence>("evidence_update", { id, input }),
     remove: (id: string) => invoke<void>("evidence_delete", { id }),
+    link: (input: EvidenceLinkInput) => invoke<EvidenceLink>("evidence_link_create", { input }),
+    unlink: (id: string) => invoke<void>("evidence_link_delete", { id }),
 };
 
 export const goals = {
@@ -276,4 +343,26 @@ export const settings = {
 
 export const backup = {
     create: (path: string) => invoke<BackupResult>("backup_create", { path }),
+};
+
+export const reminders = {
+    due: (leadMinutes = 15) => invoke<Reminder[]>("reminders_due", { leadMinutes }),
+};
+
+export const calendar = {
+    status: (provider: string) =>
+        invoke<CalendarClientStatus>("calendar_client_status", { provider }),
+    saveClient: (provider: string, clientId: string, clientSecret: string | null) =>
+        invoke<CalendarClientStatus>("calendar_save_client", {
+            provider,
+            clientId,
+            clientSecret,
+        }),
+    accounts: () => invoke<CalendarAccount[]>("calendar_accounts"),
+    connect: (provider: string) => invoke<CalendarAccount>("calendar_connect", { provider }),
+    connectCaldav: (serverUrl: string, username: string, password: string) =>
+        invoke<CalendarAccount>("calendar_connect_caldav", { serverUrl, username, password }),
+    sync: (accountId: string, from: number | null = null, to: number | null = null) =>
+        invoke<CalendarSyncResult>("calendar_sync", { accountId, from, to }),
+    disconnect: (accountId: string) => invoke<void>("calendar_disconnect", { accountId }),
 };
