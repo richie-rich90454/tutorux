@@ -24,7 +24,7 @@ pub(crate) fn archive_launch_path(
         .into_iter()
         .find(|path| {
             path.extension()
-                .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("tux"))
+                .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("tutor"))
         })
         .map(|path| {
             if path.is_absolute() {
@@ -46,20 +46,20 @@ mod tests {
         let path = archive_launch_path(
             [
                 PathBuf::from("Tutorux.exe"),
-                PathBuf::from("lessons/Math.TUX"),
-                PathBuf::from("ignored.tux"),
+                PathBuf::from("lessons/Math.TUTOR"),
+                PathBuf::from("ignored.tutor"),
             ],
             cwd,
         );
 
-        assert_eq!(path, Some(cwd.join("lessons/Math.TUX")));
+        assert_eq!(path, Some(cwd.join("lessons/Math.TUTOR")));
     }
 
     #[test]
     fn archive_launch_path_preserves_absolute_paths() {
         let absolute_path = std::env::current_dir()
             .expect("test working directory should be available")
-            .join("lesson.tux");
+            .join("lesson.tutor");
         let path = archive_launch_path([absolute_path.clone()], Path::new("other-directory"));
 
         assert_eq!(path, Some(absolute_path));
