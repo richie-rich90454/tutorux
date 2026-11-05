@@ -8,7 +8,12 @@ import {
     untrack,
     type JSX,
 } from "solid-js";
-import { errorMessage, sessions as sessionsApi, students as studentsApi } from "../../api/client";
+import {
+    chooseSessionPackageImport,
+    errorMessage,
+    sessions as sessionsApi,
+    students as studentsApi,
+} from "../../api/client";
 import type { Session, SessionInput } from "../../api/types";
 import {
     Badge,
@@ -169,6 +174,7 @@ export function SessionsPage(): JSX.Element {
     const [search, setSearch] = createSignal("");
     const [status, setStatus] = createSignal("");
     const [error, setError] = createSignal("");
+    const [message, setMessage] = createSignal("");
     const [students] = createResource(() => studentsApi.list(""));
     const [sessions, { refetch }] = createResource(
         () => ({ status: status() }),
@@ -203,21 +209,44 @@ export function SessionsPage(): JSX.Element {
         }
     }
 
+    async function importPackage(): Promise<void> {
+        setError("");
+        setMessage("");
+        try {
+            const path = await chooseSessionPackageImport();
+            if (!path) return;
+            const imported = await sessionsApi.importPackage(path);
+            await refetch();
+            setMessage(`Imported ${imported.title}.`);
+            navigate(sessionPath(imported.sessionId));
+        } catch (cause) {
+            setError(errorMessage(cause));
+        }
+    }
+
     return (
         <div class="mx-auto w-full max-w-[1240px] px-5 py-5 sm:px-7 lg:px-9">
             <PageHeader
                 title="Sessions"
                 description="The lesson records that hold capture, notes, materials, evidence, and guides."
                 actions={
-                    <Button variant="primary" onClick={() => setShowCreate((value) => !value)}>
-                        <Icon name="plus" />
-                        New session
-                    </Button>
+                    <div class="flex flex-wrap gap-2">
+                        <Button onClick={() => void importPackage()}>Import package</Button>
+                        <Button variant="primary" onClick={() => setShowCreate((value) => !value)}>
+                            <Icon name="plus" />
+                            New session
+                        </Button>
+                    </div>
                 }
             />
             <Show when={error()}>
                 <div class="mb-4">
                     <InlineNotice tone="danger">{error()}</InlineNotice>
+                </div>
+            </Show>
+            <Show when={message()}>
+                <div class="mb-4">
+                    <InlineNotice tone="success">{message()}</InlineNotice>
                 </div>
             </Show>
             <Show when={showCreate()}>
