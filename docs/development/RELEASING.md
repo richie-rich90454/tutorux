@@ -1,23 +1,72 @@
-# Desktop release builds
+# Releasing Tutorux
 
-`pnpm desktop:build` runs `tauri build`, including the configured desktop typecheck and Vite build, then runs `scripts/collect-release.mjs` to copy the host's bundle artifacts into `release/`.
+Tutorux is a Tauri 2 desktop application. The frontend assets are embedded in the executable; the `.tutor` workspace remains a user file.
 
-## Windows outputs
+## Build prerequisites
 
-The Windows release directory contains three distributable files:
+- Node.js 22.13 or newer
+- pnpm 12.14.0
+- Rust stable 1.90 or newer
+- Native Tauri build prerequisites for the target operating system
+- WebView2 runtime on Windows
 
-- `Tutorux_<version>_x64_en-US.msi` installs the desktop application with Windows Installer.
-- `Tutorux_<version>_x64-setup.exe` installs the desktop application with NSIS.
-- `Tutorux_<version>_x64_portable.exe` is the Tauri desktop executable copied from `src-tauri/target/release/tutorux-desktop.exe`.
+SQLCipher is built through `rusqlite` with bundled SQLCipher and vendored OpenSSL. The first release build is expensive; later builds reuse Cargo artifacts.
 
-The portable executable embeds the Vite frontend, native host, and multilingual Whisper Base Q5_1 model in one application file. The model is compiled into the executable and loaded directly from memory, so full-track and live transcription work offline without an external Whisper executable/model and without model extraction. The MSI and NSIS installers package the same model-enabled desktop executable. Windows still needs the system WebView2 runtime. GGUF models and FFmpeg remain optional user-supplied tools or data; they are not bundled into this executable.
+## Commands
 
-The portable application may create per-user state under `%LOCALAPPDATA%` for archive locks and detached recording controls. Compressed-audio import uses uniquely named temporary files directly under the OS temp location and removes them. Whisper transcription uses the embedded model and in-memory audio; neither workflow creates a temporary workspace directory. The system credential service and WebView2 application data are used when the corresponding credential or preference features are selected. The Windows WebView disables general address and contact autofill suggestions so saved browser form data does not appear over Tutorux inputs.
+```sh
+pnpm install --frozen-lockfile
+pnpm run typecheck
+pnpm run lint
+pnpm run format:check
+pnpm run test:coverage
+pnpm run build
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --lib
+pnpm exec tauri build --no-bundle
+```
 
-## Other operating systems
+`pnpm exec tauri build --no-bundle` writes:
 
-Tauri packages for the host operating system's configured targets. Build release artifacts on Windows, macOS, and Linux runners with their native toolchains and bundle prerequisites; one host does not cross-package all targets. The Windows portable `_x64_portable.exe` name is only emitted by the release collector on Windows.
+```text
+src-tauri/target/release/tutorux-desktop.exe   # Windows
+src-tauri/target/release/tutorux-desktop       # macOS/Linux
+```
 
-## Standalone CLI
+Run `pnpm run desktop:build` for the full installer packaging flow. Artifacts are collected under `release/` by `scripts/collect-release.mjs`.
 
-The Rust CLI is a separate developer tool, built with the `cli` feature and released as `tutorux-cli`. It is not embedded in or required by the portable desktop executable. It may use temporary directories for particular workflows; see the [CLI live recording guide](../audio/CLI-LIVE-RECORDING.md).
+## File association
+
+The desktop bundle registers `.tutor` files as Tutorux Workspaces. Opening a `.tutor` file while a second instance is running is handed to the running instance through the single-instance plugin and the launch queue.
+
+## Workspace compatibility
+
+- `.tutor` files are SQLite databases with `PRAGMA application_id = 0x54555452` and `PRAGMA user_version`.
+- Schema changes must use migrations and preserve existing user data.
+- Encrypted workspaces use SQLCipher. Backups must preserve encryption.
+- Do not ship a build that silently changes the database schema without a migration.
+
+## Release checklist
+
+- [ ] TypeScript typecheck passes.
+- [ ] ESLint passes.
+- [ ] Formatting check passes.
+- [ ] Frontend unit coverage is 100%.
+- [ ] Frontend desktop build succeeds.
+- [ ] Rust formatting passes.
+- [ ] Clippy passes with all targets and features.
+- [ ] Rust tests pass.
+- [ ] `tauri build --no-bundle` succeeds and the release application opens with embedded assets.
+- [ ] Create, save, reopen, encrypt, unlock, and back up a workspace.
+- [ ] Record audio, stop, play, and transcribe with the bundled Whisper model.
+- [ ] Run one cloud AI request with a real provider key and one local GGUF request.
+- [ ] Verify `.tutor` file association and launch handoff.
+- [ ] Confirm no browser build, `.tux` format, or CLI artifacts are produced.
+
+## Known qualification gaps
+
+- Google Calendar and Outlook OAuth are not implemented; ICS import/export is.
+- OCR, mobile-qualified capture, and 100 GB stress qualification remain future work.
+- Advanced archive repair/compaction/recovery and sanitized copies are not exposed in the new UI.
+- Linux/macOS native capture qualification still needs real device matrices.
