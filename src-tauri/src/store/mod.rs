@@ -1,9 +1,12 @@
 pub mod backup;
 pub mod blob;
 pub mod content;
+pub mod maintenance;
 pub mod materials;
 pub mod models;
+pub mod packages;
 pub mod recordings;
+pub mod reminders;
 pub mod repo;
 pub mod schedule;
 pub mod schema;
@@ -25,6 +28,7 @@ use rusqlite::Connection;
 use tauri::{State, WebviewWindow};
 use zeroize::Zeroizing;
 
+use crate::calendar;
 use models::*;
 
 pub struct WorkspaceDb {
@@ -664,6 +668,28 @@ pub fn material_read(
 }
 
 #[tauri::command]
+pub fn material_ocr(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    id: String,
+) -> Result<Material, String> {
+    main_window(&window)?;
+    with_db(&state, |db| {
+        let material = materials::get_material(&db.conn, &id)?;
+        if !material.mime_type.starts_with("image/") {
+            return Err(
+                "OCR supports image materials such as PNG, JPEG, WebP, BMP, TIFF, and GIF. Convert PDF pages to images first."
+                    .to_owned(),
+            );
+        }
+        let bytes = materials::read_material(&db.conn, &id, 64 * 1024 * 1024)?;
+        let text = crate::ocr::recognize_image(&bytes)?;
+        materials::material_text_for_search(&mut db.conn, &id, &text)?;
+        materials::get_material(&db.conn, &id)
+    })
+}
+
+#[tauri::command]
 pub fn recordings_list(
     window: WebviewWindow,
     state: State<'_, WorkspaceState>,
@@ -714,6 +740,50 @@ pub fn recording_read(
 ) -> Result<Vec<u8>, String> {
     main_window(&window)?;
     with_conn(&state, |conn| recordings::read_recording(conn, &id))
+}
+
+#[tauri::command]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Tauri provides command inputs and injected window/state handles as individual parameters."
+)]
+pub fn recording_import_tracks(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    session_id: String,
+    title: String,
+    source: String,
+    sample_rate: i64,
+    channels: i64,
+    duration_us: i64,
+    tracks: Vec<RecordingTrackInput>,
+) -> Result<Recording, String> {
+    main_window(&window)?;
+    with_db(&state, |db| {
+        recordings::import_recording_tracks(
+            &mut db.conn,
+            &session_id,
+            &title,
+            &source,
+            sample_rate,
+            channels,
+            duration_us,
+            &tracks,
+        )
+    })
+}
+
+#[tauri::command]
+pub fn recording_read_track(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    id: String,
+    track: String,
+) -> Result<Vec<u8>, String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| {
+        recordings::read_recording_track(conn, &id, &track)
+    })
 }
 
 #[tauri::command]
@@ -832,6 +902,43 @@ pub fn evidence_delete(
 ) -> Result<(), String> {
     main_window(&window)?;
     with_conn(&state, |conn| content::delete_evidence(conn, &id))
+}
+
+#[tauri::command]
+pub fn evidence_graph(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    student_id: Option<String>,
+    session_id: Option<String>,
+) -> Result<EvidenceGraph, String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| {
+        content::evidence_graph(
+            conn,
+            student_id.as_deref().unwrap_or(""),
+            session_id.as_deref().unwrap_or(""),
+        )
+    })
+}
+
+#[tauri::command]
+pub fn evidence_link_create(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    input: EvidenceLinkInput,
+) -> Result<EvidenceLink, String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| content::create_evidence_link(conn, &input))
+}
+
+#[tauri::command]
+pub fn evidence_link_delete(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    id: String,
+) -> Result<(), String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| content::delete_evidence_link(conn, &id))
 }
 
 #[tauri::command]
@@ -997,4 +1104,214 @@ pub fn workspace_check(
 ) -> Result<String, String> {
     main_window(&window)?;
     with_conn(&state, backup::integrity_check)
+}
+
+#[tauri::command]
+pub fn workspace_compact(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+) -> Result<MaintenanceResult, String> {
+    main_window(&window)?;
+    with_db(&state, |db| maintenance::compact(&db.conn, &db.path))
+}
+
+#[tauri::command]
+pub fn workspace_reindex(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+) -> Result<MaintenanceResult, String> {
+    main_window(&window)?;
+    with_conn(&state, maintenance::reindex)
+}
+
+#[tauri::command]
+pub fn workspace_recovery_copy(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<BackupResult, String> {
+    main_window(&window)?;
+    with_db(&state, |db| {
+        maintenance::recovery_copy(&db.conn, &path, db.key.as_deref().map(String::as_str))
+    })
+}
+
+#[tauri::command]
+pub fn workspace_sanitized_copy(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<BackupResult, String> {
+    main_window(&window)?;
+    with_db(&state, |db| {
+        maintenance::sanitized_copy(&db.conn, &path, db.key.as_deref().map(String::as_str))
+    })
+}
+
+#[tauri::command]
+pub fn session_package_export(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    session_id: String,
+    path: String,
+) -> Result<PackageResult, String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| {
+        packages::export_session(conn, &session_id, &path)
+    })
+}
+
+#[tauri::command]
+pub fn session_package_import(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    path: String,
+) -> Result<ImportedSession, String> {
+    main_window(&window)?;
+    with_db(&state, |db| packages::import_session(&mut db.conn, &path))
+}
+
+#[tauri::command]
+pub fn reminders_due(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    lead_minutes: i64,
+) -> Result<Vec<Reminder>, String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| reminders::due_reminders(conn, lead_minutes))
+}
+
+#[tauri::command]
+pub fn calendar_client_status(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    provider: String,
+) -> Result<crate::calendar::CalendarClientStatus, String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| calendar::client_status(conn, &provider))
+}
+
+#[tauri::command]
+pub fn calendar_save_client(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    provider: String,
+    client_id: String,
+    client_secret: Option<String>,
+) -> Result<crate::calendar::CalendarClientStatus, String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| {
+        calendar::save_client(conn, &provider, &client_id, client_secret.as_deref())
+    })
+}
+
+#[tauri::command]
+pub fn calendar_accounts(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+) -> Result<Vec<CalendarAccount>, String> {
+    main_window(&window)?;
+    with_conn(&state, calendar::list_accounts)
+}
+
+#[tauri::command]
+pub async fn calendar_connect(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    provider: String,
+) -> Result<CalendarAccount, String> {
+    main_window(&window)?;
+    let (client_id, client_secret) =
+        with_conn(&state, |conn| calendar::client_credentials(conn, &provider))?;
+    let session = calendar::begin_oauth(&provider, &client_id)?;
+    let redirect_uri = session.redirect_uri().to_owned();
+    let verifier = session.verifier().to_owned();
+    open::that(&session.url)
+        .map_err(|error| format!("Could not open the browser for calendar sign-in: {error}"))?;
+    let code = tauri::async_runtime::spawn_blocking(move || session.wait())
+        .await
+        .map_err(|_| "The calendar sign-in task could not start.".to_owned())??;
+    let tokens = calendar::exchange_code(
+        &provider,
+        &client_id,
+        client_secret.as_deref(),
+        &code,
+        &redirect_uri,
+        &verifier,
+    )
+    .await?;
+    let email = calendar::fetch_email(&provider, &tokens.access_token).await?;
+    with_db(&state, |db| {
+        calendar::save_account(&db.conn, &provider, &email, &tokens)
+    })
+}
+
+#[tauri::command]
+pub fn calendar_connect_caldav(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    server_url: String,
+    username: String,
+    password: String,
+) -> Result<CalendarAccount, String> {
+    main_window(&window)?;
+    with_db(&state, |db| {
+        calendar::save_caldav_account(&db.conn, &server_url, &username, &password)
+    })
+}
+
+#[tauri::command]
+pub async fn calendar_sync(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    account_id: String,
+    from: Option<i64>,
+    to: Option<i64>,
+) -> Result<CalendarSyncResult, String> {
+    main_window(&window)?;
+    let (provider, credential_key) = with_conn(&state, |conn| {
+        calendar::account_credentials(conn, &account_id)
+    })?;
+    let from = from.unwrap_or_else(|| now_ms() - 30 * 86_400_000);
+    let to = to.unwrap_or_else(|| now_ms() + 180 * 86_400_000);
+    if provider == "caldav" {
+        let credentials = tauri::async_runtime::spawn_blocking(move || {
+            calendar::load_caldav_credentials(&credential_key)
+        })
+        .await
+        .map_err(|_| "The saved CalDAV credentials could not be read.".to_owned())??;
+        let events = calendar::fetch_caldav_events(&credentials, from, to).await?;
+        return with_db(&state, |db| {
+            calendar::apply_events(&mut db.conn, &account_id, "caldav", &events)
+        });
+    }
+    let (client_id, client_secret) =
+        with_conn(&state, |conn| calendar::client_credentials(conn, &provider))?;
+    let mut tokens =
+        tauri::async_runtime::spawn_blocking(move || calendar::load_tokens(&credential_key))
+            .await
+            .map_err(|_| "The saved calendar credentials could not be read.".to_owned())??;
+    if tokens.expires_at < now_ms() + 60_000 {
+        tokens = calendar::refresh_tokens(&provider, &client_id, client_secret.as_deref(), &tokens)
+            .await?;
+        let account = account_id.clone();
+        let refreshed = tokens.clone();
+        tauri::async_runtime::spawn_blocking(move || calendar::save_tokens(&account, &refreshed))
+            .await
+            .map_err(|_| "The refreshed calendar tokens could not be saved.".to_owned())??;
+    }
+    let events = calendar::fetch_events(&provider, &tokens.access_token, from, to).await?;
+    with_db(&state, |db| {
+        calendar::apply_events(&mut db.conn, &account_id, &provider, &events)
+    })
+}
+
+#[tauri::command]
+pub fn calendar_disconnect(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    account_id: String,
+) -> Result<(), String> {
+    main_window(&window)?;
+    with_db(&state, |db| calendar::disconnect(&mut db.conn, &account_id))
 }
