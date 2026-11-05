@@ -14,8 +14,9 @@ A workspace is one `.tutor` SQLite file.
 - FTS5 search.
 - Content-addressed zstd-compressed BLOB chunks.
 - 90-day Trash.
-- Manual verified backups.
-- Per-user AI credentials in the OS credential store.
+- Manual verified backups, compaction, reindexing, recovery copies, and sanitized copies.
+- Session packages in `.tutorpkg` files.
+- Per-user AI and calendar credentials in the OS credential store.
 
 ## Main commands
 
@@ -36,22 +37,23 @@ pnpm exec tauri build --no-bundle
 ## Verified
 
 - TypeScript typecheck, lint, format, coverage, and desktop frontend build.
-- Rust format, Clippy with all targets/features, and 55 library tests.
+- Rust format, Clippy with all targets/features, and 71 library tests plus one ignored large-workspace test.
 - Release build with embedded assets.
-- Manual smoke checks for workspace create/open, encryption, unlock, rekey, students, sessions, notes, transcript cues, guides, materials, recurring schedules, global search, integrity checks, and Trash restore.
+- Packaged smoke checks for workspace create/open, encryption, unlock, rekey, students, sessions, notes, transcript cues, guides, materials, recurring schedules, global search, integrity checks, Trash restore, evidence links/graph, OCR, session packages, reminders, archive maintenance, multi-track storage/mixer, file audio attachment, and mobile responsive layout.
+- Real Whisper speech transcription and real printed-text OCR fixtures.
+- 1 GiB synthetic workspace qualification with integrity `ok`.
 
 ## Missing or deferred
 
-- Google Calendar, Outlook, and macOS Calendar OAuth. ICS import/export is implemented.
-- Reminders/background notifications.
-- OCR for scanned worksheets.
-- Evidence graph view.
-- Session package export/import.
-- Sanitized copy.
-- Advanced archive repair/compaction/recovery UI.
-- Multi-track mixer UI.
-- 100 GB qualification.
-- Mobile-qualified capture.
+- Live Google/Microsoft OAuth and Apple CalDAV qualification with real accounts.
+- Scanned PDF OCR (image OCR is implemented).
+- Local GGUF generation with a real model.
+- Live cloud AI provider calls with real keys.
+- 100 GB qualification (1 GiB passes).
+- Mobile hardware capture qualification.
+- Physically corrupted SQLite row salvage; recovery copies healthy workspaces.
+- Advanced calendar recurrence beyond daily/weekly/biweekly.
+- Windows/macOS/Linux capture device matrices.
 
 ## Reference
 
