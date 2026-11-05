@@ -7,6 +7,8 @@ const frontendRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..", ".
 const arbitraryValueWithSpaces = /[A-Za-z0-9_:/.-]+-\[[^\]]*\s[^\]]*\]/gu;
 const invalidScaleFraction = /\b(?:opacity-0\.\d+|opacity-1(?!\d)|outline-offset-0\.\d+)\b/gu;
 const invalidNegativeOffset = /(?:left|right|top|bottom|inset)--\d/gu;
+const bannedVisualUtility =
+    /\b(?:bg-(?:linear|radial|conic)(?:-\d+)?|from-[a-z]|via-[a-z]|to-[a-z]|backdrop-(?:blur|filter)|uppercase|border-[lrtb]-[248])\b/gu;
 
 function sourceFiles(directory: string): string[] {
     return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -26,6 +28,7 @@ describe("Tailwind class strings", () => {
                     arbitraryValueWithSpaces,
                     invalidScaleFraction,
                     invalidNegativeOffset,
+                    bannedVisualUtility,
                 ]) {
                     for (const match of line.matchAll(pattern)) {
                         offenders.push(`${file}:${index + 1}: ${match[0]}`);
