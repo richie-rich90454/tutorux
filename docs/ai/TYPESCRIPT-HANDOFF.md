@@ -1,33 +1,60 @@
-# AI workspace handoff
+# AI integration
 
-The Solid AI workspace prepares versioned, archive-backed guide packages and can run reviewed provider requests or local GGUF models. No request is sent until the user inspects the package and confirms the exact endpoint and body hash.
+AI in Tutorux is a native transport plus a local inference path. The old TypeScript AI packaging engine and the in-app command console are gone.
 
-## Manual packages
+## Assistant tasks
 
-The `tutorux-ai-package-v1` payload includes the selected session, transcript cues, observations, evidence, asset metadata, the selected guide structure, and generation/verification instructions. Private tutor notes are excluded. When a student is linked, the package includes learning difficulties, demonstrated improvements, and progress classifications; citations are validated against archive evidence. Packages are capped at 8 MiB. The archive job stores the exact JSON bytes and matching SHA-256 values.
+The Assistant page supports:
 
-Users can attach up to eight session images, or PDF/audio/video materials, within the request budget. The package records asset IDs and hashes; bytes are loaded from the same session only for a reviewed request. Provider-specific content parts are generated for OpenAI, Anthropic, Gemini, and vision-capable Ollama requests.
+- summarize a session;
+- generate a study guide;
+- draft student/parent feedback;
+- create quiz and flashcard practice;
+- plan the next lesson;
+- answer a question using student context;
+- extract action items.
 
-## Providers and credentials
+Each task assembles local context from the selected session and/or student: notes, observations, transcript highlights, material names, goals, skills, and evidence.
 
-Provider endpoint and model settings are archive-backed for OpenAI, Anthropic, Gemini, Cohere, Perplexity, Ollama, and OpenAI-compatible services. Cloud endpoints require HTTPS; Ollama uses loopback HTTP. Provider catalogs are cached with a TTL and include capabilities, context/output limits, modalities, tokenizer/pricing metadata, and freshness. Ollama installed models can be listed and checked without exposing credentials.
+## Provider registry
 
-API keys are stored as encrypted credential records or in the operating-system credential store. The UI requires explicit storage confirmation, never reads a key back into its display, masks values in workspace metadata, and soft-deletes credentials. Desktop keys pass directly from the native host into the reviewed provider transport without returning to Solid.
+`frontend/api/ai.ts` registers OpenAI, Anthropic, Google Gemini, OpenRouter, DeepSeek, Groq, Mistral, xAI, Together, Fireworks, Z.AI, MiniMax, Alibaba Cloud/Qwen, Moonshot, NVIDIA, Cerebras, SambaNova, Novita, Nebius, DeepInfra, and SiliconFlow, plus local GGUF.
 
-## Reviewed requests
+Provider IDs must also be accepted by `src-tauri/src/credentials.rs` and `src-tauri/src/ai_transport/validation.rs`. Adding a new provider requires all three:
 
-Sending requires a second confirmation naming the endpoint and body SHA-256. The desktop bridge validates the hash and provider route, restricts cloud requests to HTTPS, limits Ollama to loopback, disables redirects and retries, sets timeouts, and bounds request and response bodies to 16 MiB. It streams response chunks without logging request bodies, credentials, or provider error bodies. Browser mode uses Fetch with redirects disabled; provider CORS rules may require the desktop app.
+1. a provider definition;
+2. a credential-store allowlist entry;
+3. a fixed-host/route validation entry or an OpenAI-compatible route classification.
 
-Requests use provider-native structured output when supported (`response_format`, Ollama `format: json`, Responses `text.format`, Gemini `responseMimeType`). Every HTTP result is retained as bounded raw bytes in an AI job with package, request, and response hashes, status, content type, completion state, provider response ID, error code/message, retry-after, and confirmation method. Partial streams and cancelled generations retain completed raw bytes and produce an unapproved draft for review. The UI never renders raw provider error bytes; they remain available for explicit export.
+## Cloud path
 
-Saved responses can be imported from a file through the AI workspace. Imported output becomes a source-checked, unapproved guide draft and a manual AI job; malformed structure or citations fall back to editable text with correction warnings.
+`sendAiMessage` builds the provider-specific streaming request body, hashes it, and passes a reviewed request to `send_ai_request`.
 
-## Local models
+- Endpoint and body hashes must match the confirmed values.
+- The endpoint must pass the provider host allowlist.
+- Credentials are loaded from the OS keychain by provider ID.
+- Requests and responses are bounded.
+- Redirects are disabled.
+- The Assistant requires an explicit confirmation checkbox before sending.
 
-The desktop host and CLI inspect and run local GGUF models without a network request. Model inspection reports architecture, training context, embedding length, layer/tensor counts, and an estimated memory upper bound. Loading refuses estimates above available system memory unless overcommit is explicitly allowed. CLI inference uses `node-llama-cpp` when a compatible runtime is installed and never downloads or builds one automatically.
+## Local GGUF path
 
-## CLI
+The user selects a `.gguf` file, inspects it, loads it into the process, and then sends generation requests through `generate_embedded_text`.
 
-The CLI AI group supports provider configuration, context preview, reviewed generation, package export, response import, model catalogs, connection checks, job inspection/cancellation, Ollama context estimates, and embedded-model inspection. The shared context packer groups transcript gaps, splits long records at Unicode-safe boundaries, and supports injected tokenizers; the CLI uses the documented byte-based estimate by default.
+- Models are never uploaded.
+- Model file size and estimated memory are validated before loading.
+- Local generation is streamed through a Tauri channel.
+- The user must load a model before sending a local request.
 
-Tutors must review generated claims, citations, and recommendations before approving a guide.
+## Whisper path
+
+The bundled multilingual Whisper Base Q5_1 model runs in the desktop process. The frontend decodes the recorded audio with the Web Audio API, resamples it to 16 kHz mono WAV, and calls `transcribe_whisper`. The language selector includes the Whisper language set with automatic detection as the default.
+
+Transcription is a review workflow: generated cues remain unverified until the user edits or marks them reviewed.
+
+## What is not covered
+
+- Cloud providers were not exercised with live keys in this environment.
+- Local GGUF generation was not exercised with a real GGUF file in this environment.
+- Real spoken-audio transcription through the UI needs a fixture.
+- Provider-specific retry and streaming edge cases require provider qualification.
