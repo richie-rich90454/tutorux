@@ -122,8 +122,8 @@ fn probe_application_audio_stream(
         "ScreenCaptureKit could not inspect application audio. Check macOS 14+ and Screen & System Audio Recording permission."
             .to_owned()
     })?;
-    let application = content
-        .applications()
+    let applications = content.applications();
+    let application = applications
         .iter()
         .find(|application| application.process_id() == target.process_id as i32)
         .ok_or_else(|| {
