@@ -58,4 +58,5 @@ The old `.tux` parser, browser file adapter, native archive range commands, in-a
 - The operating-system account and credential store are part of the trust boundary.
 - Plain workspaces are not encrypted against a user who can read the file.
 - Cloud provider handling is governed by the provider's policy; Tutorux does not control it.
-- Calendar OAuth is not implemented, so there are no calendar tokens to protect in this build.
+- Calendar OAuth tokens and CalDAV app-specific passwords are protected by the operating-system credential store; a compromised OS account can use them.
+- Calendar sync sends credentials and event requests directly to the configured provider over HTTPS; the provider's policy governs that data.
