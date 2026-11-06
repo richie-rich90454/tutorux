@@ -302,8 +302,10 @@ fn whisper_pcm_samples(wav: &[u8]) -> Result<Vec<f32>, String> {
         return Err("Whisper audio must contain 16 kHz mono 16-bit PCM samples.".to_owned());
     }
     Ok(wav[data_start..data_start + data_len]
-        .chunks_exact(2)
-        .map(|sample| i16::from_le_bytes([sample[0], sample[1]]) as f32 / 32_768.0)
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|sample| i16::from_le_bytes(*sample) as f32 / 32_768.0)
         .collect())
 }
 
