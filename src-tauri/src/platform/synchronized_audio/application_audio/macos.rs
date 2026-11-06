@@ -41,8 +41,12 @@ pub(super) fn start_application_audio_stream(
         .with_width(2)
         .with_height(2)
         .with_captures_audio(true)
-        .with_sample_rate(APPLICATION_AUDIO_SAMPLE_RATE_HZ)
-        .with_channel_count(u32::from(APPLICATION_AUDIO_CHANNELS));
+        .with_sample_rate(
+            i32::try_from(APPLICATION_AUDIO_SAMPLE_RATE_HZ).map_err(|_| {
+                "The application-audio sample rate is outside the supported range.".to_owned()
+            })?,
+        )
+        .with_channel_count(i32::from(APPLICATION_AUDIO_CHANNELS));
     let stop_signal = Arc::clone(&signal);
     let delegate = StreamCallbacks::new().on_stop(move |error| {
         if let Some(error) = error {
@@ -96,8 +100,10 @@ fn receive_screen_capture_audio(
         }
         let samples: Vec<f32> = buffer
             .data()
-            .chunks_exact(4)
-            .map(|bytes| f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|bytes| f32::from_le_bytes(*bytes))
             .collect();
         channel_total = channel_total.saturating_add(channel_count);
         if channel_total > usize::from(MAX_CHANNELS) {
