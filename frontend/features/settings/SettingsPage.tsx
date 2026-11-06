@@ -188,7 +188,7 @@ export function SettingsPage(): JSX.Element {
                 <Panel>
                     <PanelHeader
                         title="Appearance"
-                        detail="The current teal, without gradients or glass effects."
+                        detail="Neutral surfaces with a green accent for actions, navigation, and status."
                     />
                     <div class="grid gap-3 p-4 sm:grid-cols-2">
                         <Field label="Theme">
