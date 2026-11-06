@@ -208,6 +208,7 @@ fn probe_input_endpoint(device: &cpal::Device, mode: EndpointProbeMode) -> Audio
     }
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos"))]
 fn probe_output_endpoint(device: &cpal::Device, mode: EndpointProbeMode) -> AudioEndpointProbe {
     match device.default_output_config() {
         Ok(config) => endpoint_probe_result(&config, mode, device),
