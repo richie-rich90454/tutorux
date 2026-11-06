@@ -31,7 +31,7 @@ This is the current state of the SQLite/Tauri rewrite.
 | Schedule | Implemented | One-off and recurring series materialize sessions, ICS import/export |
 | Calendar OAuth | Implemented | Google and Microsoft PKCE OAuth; requires external app registration |
 | Apple Calendar | Implemented | CalDAV with app-specific password; requires live account qualification |
-| Reminders | Implemented | Desktop notifications with configurable lead time |
+| Reminders | Implemented | Desktop notifications while Tutorux is open, with configurable lead time |
 | Today | Implemented | Upcoming sessions, continue card, recent sessions, students, onboarding checklist |
 | Global search | Implemented | FTS5 over students, sessions, notes, cues, materials, guides, evidence |
 | Assistant | Implemented | Cloud providers with consent; local GGUF with user-supplied model |
