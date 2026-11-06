@@ -115,7 +115,8 @@ fn run_application_audio_capture(
     commands: Receiver<ApplicationAudioCommand>,
 ) {
     let counters = Arc::new(ApplicationAudioCounters::new());
-    let mut expected_backend_frame_index = None;
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let mut expected_backend_frame_index: Option<u64> = None;
     let mut stream: Option<NativeApplicationAudioStream> = None;
     loop {
         if stream.is_none() {
