@@ -22,7 +22,9 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                os: [windows-2025, macos-15, ubuntu-24.04]
+                # macOS 26 supplies the Metal SDK required by screencapturekit's
+                # Swift bridge; the packaged app still targets macOS 14.
+                os: [windows-2025, macos-26, ubuntu-24.04]
 
         steps:
             - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
