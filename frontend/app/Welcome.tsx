@@ -164,7 +164,7 @@ export function Welcome(): JSX.Element {
                             </Button>
                         </div>
                         <Show when={workspace.encryptedPath()}>
-                            <div class="rounded-[6px] border border-accent/40 bg-surface p-4">
+                            <div class="rounded-[6px] border border-line bg-surface p-4">
                                 <h3 class="text-sm font-semibold text-ink">Encrypted workspace</h3>
                                 <p class="mt-0.5 break-all text-xs leading-relaxed text-muted">
                                     {workspace.encryptedPath()}
