@@ -227,7 +227,7 @@ export function GuidesPage(): JSX.Element {
                                     class="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-inset"
                                     onClick={() => navigate(guidePath(guide.id))}
                                 >
-                                    <span class="grid h-8 w-8 flex-none place-items-center rounded-[5px] bg-accent-soft text-accent">
+                                    <span class="grid h-8 w-8 flex-none place-items-center rounded-[5px] bg-surface-inset text-accent">
                                         <Icon name="guides" />
                                     </span>
                                     <span class="min-w-0 flex-1">
