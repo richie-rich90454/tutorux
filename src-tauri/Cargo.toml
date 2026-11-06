@@ -43,7 +43,7 @@ ocrs = "0.13"
 rten = "0.26"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff", "gif"] }
 open = "5"
-roxmltree = "0.20"
+roxmltree = "0.21"
 chrono-tz = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
