@@ -351,6 +351,9 @@ pub fn import_session(
                 WHEN 'material' THEN COALESCE((SELECT new FROM map_material WHERE old = p.source_id), '')
                 WHEN 'transcript' THEN COALESCE((SELECT new FROM map_cue WHERE old = p.source_id), '')
                 WHEN 'guide' THEN COALESCE((SELECT new FROM map_guide WHERE old = p.source_id), '')
+                WHEN 'observation' THEN COALESCE((SELECT new FROM map_observation WHERE old = p.source_id), '')
+                WHEN 'journal' THEN COALESCE((SELECT new FROM map_journal WHERE old = p.source_id), '')
+                WHEN 'recording' THEN COALESCE((SELECT new FROM map_recording WHERE old = p.source_id), '')
                 ELSE p.source_id
             END,
             p.kind, p.statement, p.status, NULL, p.created_at, p.updated_at
