@@ -30,8 +30,8 @@ impl Resampler {
             .checked_add(frame_count)
             .ok_or_else(|| "Live audio timeline exceeded its supported range.".to_owned())?;
         let mut source = Zeroizing::new(Vec::with_capacity(frames));
-        for sample in bytes.chunks_exact(2) {
-            source.push(i16::from_le_bytes([sample[0], sample[1]]) as f32 / 32768.0);
+        for sample in bytes.as_chunks::<2>().0 {
+            source.push(i16::from_le_bytes(*sample) as f32 / 32768.0);
         }
 
         let mut output = Zeroizing::new(Vec::new());
