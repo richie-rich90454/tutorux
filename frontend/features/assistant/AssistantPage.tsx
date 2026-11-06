@@ -374,7 +374,7 @@ export function AssistantPage(): JSX.Element {
                                         type="button"
                                         class={
                                             item.id === task()
-                                                ? "rounded-[5px] border border-accent bg-accent-soft p-3 text-left"
+                                                ? "rounded-[5px] border border-accent/40 bg-accent-soft p-3 text-left"
                                                 : "rounded-[5px] border border-line bg-surface p-3 text-left hover:bg-surface-inset"
                                         }
                                         onClick={() => setTask(item.id)}
