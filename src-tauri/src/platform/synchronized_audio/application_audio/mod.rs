@@ -166,10 +166,10 @@ fn run_application_audio_capture(
                     if let Some(mut active) = stream.take() {
                         stop_application_audio_stream(&mut active);
                     }
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    {
-        expected_backend_frame_index = None;
-    }
+                    #[cfg(any(target_os = "windows", target_os = "linux"))]
+                    {
+                        expected_backend_frame_index = None;
+                    }
                     let _ = reply.send(Ok(()));
                     break;
                 }
