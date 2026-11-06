@@ -143,8 +143,12 @@ fn probe_application_audio_stream(
         .with_width(2)
         .with_height(2)
         .with_captures_audio(true)
-        .with_sample_rate(APPLICATION_AUDIO_SAMPLE_RATE_HZ)
-        .with_channel_count(u32::from(APPLICATION_AUDIO_CHANNELS));
+        .with_sample_rate(
+            i32::try_from(APPLICATION_AUDIO_SAMPLE_RATE_HZ).map_err(|_| {
+                "The application-audio sample rate is outside the supported range.".to_owned()
+            })?,
+        )
+        .with_channel_count(i32::from(APPLICATION_AUDIO_CHANNELS));
     let delegate = StreamCallbacks::new().on_stop(|_| {});
     let mut stream =
         SCStream::new_with_delegate(&filter, &configuration, delegate).map_err(|_| {
