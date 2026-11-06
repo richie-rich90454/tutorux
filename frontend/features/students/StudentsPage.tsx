@@ -219,7 +219,7 @@ export function StudentsPage(): JSX.Element {
                                     class="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-surface-inset"
                                     onClick={() => navigate(`/students/${student.id}/overview`)}
                                 >
-                                    <span class="grid h-9 w-9 flex-none place-items-center rounded-[5px] bg-accent-soft text-xs font-semibold text-accent">
+                                    <span class="grid h-9 w-9 flex-none place-items-center rounded-[5px] bg-surface-inset text-xs font-semibold text-accent">
                                         {initials(student.displayName)}
                                     </span>
                                     <span class="min-w-0 flex-1">
