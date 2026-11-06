@@ -234,6 +234,7 @@ The packaged desktop binary was launched with WebView2 remote debugging and exer
 These are explicit follow-ups, not hidden omissions:
 
 - Live Google/Microsoft OAuth and Apple CalDAV qualification with real accounts.
+- OS-level reminders while Tutorux is closed; reminders currently run while the app is open.
 - Live cloud AI provider calls with real keys.
 - Local GGUF generation with a real model.
 - Scanned PDF OCR; image OCR is implemented.
