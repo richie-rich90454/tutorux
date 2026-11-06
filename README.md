@@ -83,6 +83,7 @@ See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive
 - Google Calendar and Outlook OAuth require desktop OAuth client credentials from the provider. Apple Calendar uses CalDAV with an app-specific password. Live provider qualification is not included in the test environment.
 - OCR reads image materials. Scanned PDF pages must be converted to images before OCR.
 - The mobile layout is responsive and supports file-based audio attachment, but device-qualified mobile capture has not been run.
+- Reminders fire while Tutorux is open; there is no OS-level background scheduler when the app is closed.
 - Archive recovery creates a verified copy of a healthy workspace. It does not salvage individual rows from a physically corrupted SQLite file.
 - The evidence graph shows links; automated graph analytics are not included.
 - A 1 GiB synthetic workspace qualification passes. The full 100 GB qualification has not been run.
