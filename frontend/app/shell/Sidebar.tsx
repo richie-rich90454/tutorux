@@ -69,7 +69,7 @@ export function Sidebar(props: {
     const nav = (
         <aside
             class={cn(
-                "flex h-full min-h-0 w-full flex-col border-r border-line bg-canvas px-3 py-4",
+                "flex h-full min-h-0 w-full flex-col border-r border-line bg-sidebar px-3 py-4",
                 props.mobileOpen ? "shadow-none" : "",
             )}
             aria-label="Workspace navigation"
@@ -147,7 +147,7 @@ export function Sidebar(props: {
                 <For each={groups}>
                     {(group) => (
                         <div class="mb-3">
-                            <div class="px-2 pb-1 text-[11px] font-medium text-muted">
+                            <div class="px-2 pb-1 text-[11px] font-medium text-faint">
                                 {group.title}
                             </div>
                             <div class="grid gap-0.5">
@@ -202,7 +202,7 @@ export function Sidebar(props: {
             <Show when={props.mobileOpen}>
                 <div class="fixed inset-0 z-30 flex md:hidden">
                     <div
-                        class="absolute inset-0 bg-[rgb(10_16_12_/_42%)]"
+                        class="absolute inset-0 bg-black/45"
                         onClick={() => props.onCloseMobile()}
                     />
                     <div class="relative z-10 h-full w-[min(320px,_88vw)] bg-canvas">{nav}</div>
