@@ -109,9 +109,8 @@ pub(crate) fn total_system_memory_bytes() -> Result<u64, String> {
             .ok_or_else(|| "MemTotal was not present in /proc/meminfo.".to_owned())?
             .parse::<u64>()
             .map_err(|_| "MemTotal was not a valid memory value.".to_owned())?;
-        return kib
-            .checked_mul(1024)
-            .ok_or_else(|| "MemTotal exceeded the supported memory range.".to_owned());
+        kib.checked_mul(1024)
+            .ok_or_else(|| "MemTotal exceeded the supported memory range.".to_owned())
     }
     #[cfg(target_os = "macos")]
     {
@@ -124,10 +123,10 @@ pub(crate) fn total_system_memory_bytes() -> Result<u64, String> {
         if !output.status.success() {
             return Err("sysctl did not return the installed memory size.".to_owned());
         }
-        return String::from_utf8_lossy(&output.stdout)
+        String::from_utf8_lossy(&output.stdout)
             .trim()
             .parse::<u64>()
-            .map_err(|_| "sysctl returned an invalid installed memory size.".to_owned());
+            .map_err(|_| "sysctl returned an invalid installed memory size.".to_owned())
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
@@ -180,9 +179,8 @@ pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
             .ok_or_else(|| "MemAvailable was not present in /proc/meminfo.".to_owned())?
             .parse::<u64>()
             .map_err(|_| "MemAvailable was not a valid memory value.".to_owned())?;
-        return kib
-            .checked_mul(1024)
-            .ok_or_else(|| "MemAvailable exceeded the supported memory range.".to_owned());
+        kib.checked_mul(1024)
+            .ok_or_else(|| "MemAvailable exceeded the supported memory range.".to_owned())
     }
     #[cfg(target_os = "macos")]
     {
@@ -225,9 +223,9 @@ pub(crate) fn available_system_memory_bytes() -> Result<u64, String> {
         if found != 3 {
             return Err("vm_stat did not expose all available-memory page counters.".to_owned());
         }
-        return available_pages
+        available_pages
             .checked_mul(page_size)
-            .ok_or_else(|| "vm_stat returned an out-of-range available memory value.".to_owned());
+            .ok_or_else(|| "vm_stat returned an out-of-range available memory value.".to_owned())
     }
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
     {
