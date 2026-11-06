@@ -110,7 +110,7 @@ fn parse_proc_memory_kib(contents: &str, field_name: &str) -> Result<u64, String
         .map_err(|_| format!("{field_name} was not a valid memory value."))?;
     value
         .checked_mul(1024)
-        .ok_or_else(|| format!("{field_name} exceeded the supported memory range.".to_owned()))
+        .ok_or_else(|| format!("{field_name} exceeded the supported memory range."))
 }
 
 fn parse_first_seconds(contents: &str) -> Result<u64, String> {
