@@ -9,11 +9,11 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md";
 
 const buttonBase =
-    "inline-flex items-center justify-center gap-1.5 rounded-[5px] border font-medium leading-none whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50";
+    "inline-flex items-center justify-center gap-1.5 rounded-[5px] border font-medium leading-none whitespace-nowrap transition-[background-color,border-color,color,transform] active:translate-y-px focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50";
 
 const buttonVariants: Record<ButtonVariant, string> = {
     primary:
-        "border-accent bg-accent text-[var(--accent-contrast)] hover:border-accent-hover hover:bg-accent-hover",
+        "border-accent-solid bg-accent-solid text-white hover:border-accent-solid-hover hover:bg-accent-solid-hover",
     secondary: "border-line-strong bg-surface text-ink-soft hover:bg-surface-inset hover:text-ink",
     ghost: "border-transparent bg-transparent text-ink-soft hover:bg-surface-inset hover:text-ink",
     danger: "border-danger/30 bg-[var(--danger-soft)] text-danger hover:border-danger",
@@ -173,13 +173,15 @@ export function PageHeader(props: {
         <header class="mb-6 flex flex-wrap items-end justify-between gap-4 max-sm:mb-4 max-sm:items-start">
             <div class="min-w-0">
                 <Show when={props.eyebrow}>
-                    <span class="text-xs font-medium text-accent">{props.eyebrow}</span>
+                    <span class="text-[11px] font-medium tracking-[0.02em] text-accent">
+                        {props.eyebrow}
+                    </span>
                 </Show>
-                <h1 class="mt-1 text-[26px] font-semibold leading-tight tracking-tight text-ink">
+                <h1 class="mt-1.5 text-[27px] font-semibold leading-[1.12] tracking-[-0.025em] text-ink">
                     {props.title}
                 </h1>
                 <Show when={props.description}>
-                    <p class="mt-1.5 max-w-[72ch] text-[13px] leading-relaxed text-muted">
+                    <p class="mt-2 max-w-[68ch] text-[13px] leading-6 text-muted">
                         {props.description}
                     </p>
                 </Show>
@@ -193,7 +195,7 @@ export function PageHeader(props: {
 
 export function Panel(props: { class?: string | undefined; children: JSX.Element }): JSX.Element {
     return (
-        <section class={cn("min-w-0 rounded-[6px] border border-line bg-surface", props.class)}>
+        <section class={cn("min-w-0 rounded-[8px] border border-line bg-surface", props.class)}>
             {props.children}
         </section>
     );
@@ -244,11 +246,11 @@ export function Badge(props: {
     children: JSX.Element;
 }): JSX.Element {
     const tones = {
-        neutral: "border-line-soft bg-surface-subtle text-muted",
-        accent: "border-accent/20 bg-accent-soft text-accent",
-        success: "border-success/20 bg-accent-soft text-success",
-        warning: "border-warning/25 bg-[var(--warning-soft,#fbf5e8)] text-warning",
-        danger: "border-danger/20 bg-[var(--danger-soft)] text-danger",
+        neutral: "border-line bg-surface-subtle text-muted",
+        accent: "border-accent/30 bg-accent-soft text-accent",
+        success: "border-success/30 bg-accent-soft text-success",
+        warning: "border-warning/35 bg-[var(--warning-soft)] text-warning",
+        danger: "border-danger/35 bg-[var(--danger-soft)] text-danger",
     };
     return (
         <span
@@ -300,8 +302,8 @@ export function InlineNotice(props: {
 }): JSX.Element {
     const tones = {
         info: "border-line bg-surface-subtle text-ink-soft",
-        danger: "border-danger/25 bg-[var(--danger-soft)] text-danger",
-        success: "border-success/25 bg-accent-soft text-success",
+        danger: "border-danger/30 bg-[var(--danger-soft)] text-danger",
+        success: "border-success/30 bg-accent-soft text-success",
     };
     return (
         <div
