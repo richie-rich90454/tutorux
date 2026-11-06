@@ -112,6 +112,9 @@ impl ApplicationAudioCounters {
         }
     }
 
+    // fetch_update predates try_update; allow the deprecation so the declared
+    // Rust 1.90 minimum still compiles on newer stable toolchains.
+    #[allow(deprecated)]
     pub(super) fn next(&self, frame_count: u64) -> Option<(u64, u64)> {
         let sequence = self
             .sequence
