@@ -501,6 +501,7 @@ fn returns_lessons_due_within_the_lead_window() {
     .unwrap();
     let due = super::reminders::due_reminders(&connection, 15).unwrap();
     assert_eq!(due.len(), 1);
+    assert_eq!(due[0].entity_type, "session");
     assert_eq!(due[0].title, "Algebra check-in");
     assert!(super::reminders::due_reminders(&connection, 5)
         .unwrap()
