@@ -244,7 +244,7 @@ export function CommandPalette(props: { open: boolean; onClose: () => void }): J
 
     return (
         <Show when={props.open}>
-            <div class="fixed inset-0 z-50 grid place-items-start justify-center bg-[rgb(10_16_12_/_42%)] px-4 pt-[12vh]">
+            <div class="fixed inset-0 z-50 grid place-items-start justify-center bg-black/50 px-4 pt-[12vh]">
                 <div class="absolute inset-0" onClick={() => props.onClose()} />
                 <div
                     class="relative z-10 w-full max-w-[640px] rounded-[8px] border border-line-strong bg-surface"
