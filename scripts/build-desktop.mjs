@@ -4,6 +4,23 @@ import { dirname, join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const tauriCli = join(dirname(require.resolve("@tauri-apps/cli/package.json")), "tauri.js");
+
+// Tauri treats a present-but-empty signing variable as configured. Remove the
+// Apple signing environment for unsigned branch builds; tagged releases already
+// require a non-empty certificate in the workflow.
+if (process.platform === "darwin" && !process.env["APPLE_CERTIFICATE"]) {
+    for (const key of [
+        "APPLE_CERTIFICATE",
+        "APPLE_CERTIFICATE_PASSWORD",
+        "APPLE_SIGNING_IDENTITY",
+        "APPLE_ID",
+        "APPLE_PASSWORD",
+        "APPLE_TEAM_ID",
+    ]) {
+        delete process.env[key];
+    }
+}
+
 const tauriArgs = [tauriCli, "build"];
 const thumbprint = process.env["WINDOWS_CERTIFICATE_THUMBPRINT"];
 if (process.platform === "win32" && thumbprint) {
