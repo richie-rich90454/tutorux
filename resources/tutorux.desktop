@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Tutorux
-Comment=Tutoring sessions, notes, and recordings
-Exec=tutorux
-Icon=tutorux
-Terminal=false
-Categories=Education;Office;
-StartupNotify=true

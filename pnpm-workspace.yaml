@@ -1,0 +1,7 @@
+allowBuilds:
+  esbuild: true
+minimumReleaseAgeExclude:
+  - vite-plugin-solid@2.11.15
+  - solid-js@1.9.18
+overrides:
+  minimatch: ^11.0.1

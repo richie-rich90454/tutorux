@@ -1,0 +1,5 @@
+[env]
+# llama.cpp's bundled cpp-httplib otherwise finds the MSYS2 OpenSSL installation
+# and mixes MinGW headers into an MSVC build. Tutorux does not use its HTTPS
+# support, so disable that optional dependency for every local and CI build.
+CMAKE_DISABLE_FIND_PACKAGE_OpenSSL = "TRUE"

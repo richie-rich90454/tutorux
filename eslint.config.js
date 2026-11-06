@@ -1,0 +1,55 @@
+import eslint from "@eslint/js";
+import solid from "eslint-plugin-solid";
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+    { ignores: ["dist/**", "build/**", "src-tauri/target/**", "node_modules/**"] },
+    eslint.configs.recommended,
+    ...tseslint.configs.recommended,
+    {
+        files: ["scripts/**/*.mjs"],
+        languageOptions: {
+            globals: {
+                Buffer: "readonly",
+                console: "readonly",
+                fetch: "readonly",
+                process: "readonly",
+            },
+        },
+    },
+    {
+        files: ["frontend/**/*.{ts,tsx}", "scripts/**/*.ts", "tests/e2e/**/*.ts", "*.ts"],
+        plugins: { solid },
+        languageOptions: {
+            parserOptions: {
+                projectService: true,
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
+        rules: {
+            ...solid.configs.recommended.rules,
+            "no-console": ["error", { allow: ["warn", "error"] }],
+            "@typescript-eslint/consistent-type-imports": "error",
+            "@typescript-eslint/no-floating-promises": "error",
+            "@typescript-eslint/no-misused-promises": [
+                "error",
+                { checksVoidReturn: { attributes: false } },
+            ],
+            "@typescript-eslint/await-thenable": "error",
+            "@typescript-eslint/switch-exhaustiveness-check": "error",
+            "no-restricted-properties": [
+                "error",
+                {
+                    property: "toLocaleLowerCase",
+                    message:
+                        "Use toLowerCase(); identifiers and keys must not depend on the host locale.",
+                },
+                {
+                    property: "toLocaleUpperCase",
+                    message:
+                        "Use toUpperCase(); identifiers and keys must not depend on the host locale.",
+                },
+            ],
+        },
+    },
+);

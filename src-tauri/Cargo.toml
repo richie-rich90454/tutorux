@@ -1,0 +1,81 @@
+[package]
+name = "tutorux-desktop"
+version = "1.0.0"
+description = "Tutorux desktop host"
+authors = ["Tutorux"]
+edition = "2021"
+rust-version = "1.90"
+default-run = "tutorux-desktop"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+base64 = "0.23"
+dasp_sample = "0.11"
+reqwest = { version = "0.13.5", default-features = false, features = [
+    "rustls",
+    "stream",
+    "system-proxy",
+    "json",
+    "form",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2.5.4"
+keyring = "4.2.0"
+libc = "0.2.186"
+llama-cpp-2 = "=0.1.160"
+uuid = { version = "1", features = ["v4"] }
+zeroize = "1.8"
+encoding_rs = "0.8.35"
+whisper-rs = { version = "=0.16.0", default-features = false }
+tempfile = "3"
+rusqlite = { version = "0.41", features = ["bundled-sqlcipher-vendored-openssl", "backup"] }
+thiserror = "2"
+zstd = "0.14"
+chrono = { version = "0.4", features = ["serde"] }
+tauri-plugin-notification = "2"
+ocrs = "0.13"
+rten = "0.26"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff", "gif"] }
+open = "5"
+roxmltree = "0.20"
+chrono-tz = "0.10"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cpal = { version = "0.18.2", default-features = false, features = ["pipewire"] }
+
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+flexaudio = "0.8"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = { version = "11.1.1", features = ["macos_14_0"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_Storage_FileSystem",
+] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+cpal = "0.18.2"
+
+[patch.crates-io]
+# Match the helper's patched microphone backend so Linux resolves one ALSA sys crate.
+flexaudio-mic = { path = "vendor/flexaudio-mic" }
+# Keep whisper.cpp's ggml symbols out of llama.cpp's namespace so both can link
+# into the desktop process.
+whisper-rs = { path = "vendor/whisper-rs" }
+whisper-rs-sys = { path = "vendor/whisper-rs-sys" }
+
+[features]
+default = ["desktop"]
+desktop = []
+custom-protocol = ["tauri/custom-protocol"]

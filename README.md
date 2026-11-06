@@ -1,256 +1,109 @@
 # Tutorux
 
-Tutorux is a local-first tutoring workstation that records lessons, organizes notes and materials, builds evidence-linked study guides, and keeps every student record inside one portable `.tux` archive.
+Tutorux is a local-first tutoring workspace for students, sessions, recordings, transcripts, notes, materials, evidence, progress, and study guides. A workspace is one portable `.tutor` file.
 
-No account. No hosted service. No database to install. The archive is the application.
+The application is a SolidJS and TypeScript interface running inside a Tauri 2 desktop shell. The workspace store is Rust and SQLite. The browser edition and the retired custom `.tux` archive engine are no longer part of the product.
 
-![Tutorux workspace](docs/images/workspace.png)
+## Requirements
 
-The same workspace in dark mode. Both themes are first-class and share one
-token system.
+- Node.js 22.13 or newer
+- pnpm 12.14.0
+- Rust stable 1.90 or newer
+- The native Tauri prerequisites for your operating system
+- The system WebView2 runtime on Windows
 
-![Tutorux dark workspace](docs/images/workspace-dark.png)
+FFmpeg is optional and is not required by the new desktop workflow.
 
-`Ctrl+K` opens the command palette over every primary action.
+## Development
 
-![Tutorux command palette](docs/images/command-palette.png)
-
-## Why Tutorux
-
-- **One file, every record.** Students, sessions, recordings, transcripts, annotations, materials, evidence, guides, settings, and credentials live in a single portable archive.
-- **Built for real tutoring.** Session notes, timestamped markers, transcript corrections, learning evidence, and guide revisions are first-class records rather than files scattered across folders.
-- **Evidence before prose.** Study guides cite the annotations, transcript passages, materials, and sessions that support each block.
-- **Fast and native.** The desktop application uses C++23 and Slint. There is no Electron, Qt, Tauri, embedded browser, or background service.
-- **Private by default.** Recording requires explicit consent. Cloud AI is opt-in, credentials are encrypted, and full archives can be sanitized before sharing.
-- **Useful offline.** Notes, archives, PDF/DOCX/HTML/Markdown exports, and local guide editing work without a network connection.
-
-## Feature tour
-
-| Area | What is included |
-| --- | --- |
-| Workspace | Session navigator, notebook, transcript review, study guide editor, materials, student profiles, and a session inspector |
-| Recording | Multiple takes per lesson, synchronized microphone/system tracks, a track manager with non-destructive mixdowns, detached controls, waveform playback, WAV import/export, and interrupted-capture recovery |
-| Notebook | Structured blocks, autosave, formatting, journal entries, collections, tags, search, and revision history |
-| Transcript | Text/SRT/VTT import, local Whisper support, segment correction, timestamps, split/merge, speaker labels, verification, and export |
-| Materials | Content-addressed images, documents, audio, and video with preview, extraction, and annotation/transcript links |
-| Evidence | Source-linked extraction, review, approval, rejection, verification, and contradiction relationships |
-| Study guides | Templates, section/block editing, source inspection, stale-source tracking, approval, and PDF/DOCX/HTML/Markdown/JSON export |
-| Transfer | Session packages, archive copy/backup, sanitized copies, compaction, verification, and recovery |
-| AI | External-agent packages, response import, OpenAI-compatible providers, native Anthropic/Gemini/Cohere/Perplexity protocols, Ollama, llama.cpp server, and optional embedded llama.cpp |
-
-## Quick guide
-
-[Watch the 20-second, captioned walkthrough](docs/tutorial/quick-guide.mp4) or
-read the [chapter guide and rebuild instructions](docs/tutorial/README.md).
-
-## Quick start
-
-### Run the Windows build
-
-The portable release is one self-contained executable. After building the portable target below, run:
-
-```powershell
-dist\Tutorux.exe
+```sh
+pnpm install --frozen-lockfile
+pnpm run desktop:dev
 ```
 
-On first launch, choose an existing `.tux` archive or create a new one. One archive in the current folder opens directly; multiple archives show an explicit picker.
+The desktop shell starts Vite on `127.0.0.1:1420` and opens the Tauri window.
 
-![Archive picker](docs/images/archive-picker.png)
+Useful checks:
 
-### Build from source
-
-Requirements: CMake 3.25 or newer, a C++23 compiler, Ninja, Git, and Rust for the pinned Slint dependency. Windows builds use the UCRT64 toolchain in this repository.
-
-```powershell
-cmake --preset dev
-cmake --build build/dev
-ctest --preset dev
-build/dev/tutorux.exe
+```sh
+pnpm run typecheck
+pnpm run lint
+pnpm run format:check
+pnpm run test
+pnpm run test:coverage
+pnpm run build
+cargo test --manifest-path src-tauri/Cargo.toml --lib
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 ```
 
-Build the portable Windows executable:
+`pnpm run build` typechecks the frontend and produces the desktop frontend in `dist/`.
 
-```powershell
-cmake --preset portable
-cmake --build build/portable --target dist
-dist\Tutorux.exe --version
+Build the desktop application without installers:
+
+```sh
+pnpm exec tauri build --no-bundle
 ```
 
-The `portable` preset statically links the GUI and runtime dependencies, embeds Slint images and icons in the executable, and embeds the Noto Sans font family. The staged executable runs without the source tree, UI asset files, or app-specific DLLs; the adjacent Noto Sans OFL file is a license notice, not a runtime requirement. Windows itself supplies desktop, audio, cryptographic, and networking APIs. The build includes local Whisper support, while selected model weights remain user data and are not runtime libraries. Windows builds use WinHTTP and the platform trust store, so libcurl/OpenSSL are not in the Windows runtime.
+The binary is written to `src-tauri/target/release/tutorux-desktop.exe` on Windows. `pnpm run desktop:build` performs the full Tauri packaging flow and writes release artifacts under `release/`.
 
-For the Full Windows executable, build the static release preset. It bundles the FLAC, MP3, and M4A decoders and the llama.cpp inference runtime into the executable:
+## Workspace format
 
-```powershell
-cmake --preset portable-static-windows-x64-release
-cmake --build build/windows-x64-static --target dist size
-dist\Tutorux.exe --version
-```
+A `.tutor` workspace is a SQLite database with:
 
-The Full profile also embeds Slint images, icons, and fonts and has no Tutorux-specific DLL or executable dependencies. Windows system APIs remain operating-system requirements. Model weights and archives are user data, not runtime libraries. The Full executable has a 125 MB size gate; the smaller `portable` profile keeps its 65 MB gate. Both use the Slint software renderer, disable the interpreter, testing backend, live preview, and system tray, and strip release symbols.
+- typed tables for students, sessions, schedule events, journal entries, observations, transcript cues, materials, recordings, guides, evidence, goals, skills, settings, and AI jobs;
+- an FTS5 index for global search;
+- content-addressed compressed BLOB storage with deduplication;
+- optional SQLCipher encryption;
+- 90-day Trash recovery;
+- manual verified backups.
 
-```powershell
-cmake --build build/portable --target size
-```
+Open and create `.tutor` files from the welcome screen. Encrypted workspaces prompt for the passphrase. Passphrase rotation is available in Settings after unlocking.
 
-The base profile is the smallest usable desktop build. It excludes PoDoFo, the network transport, and Whisper, while keeping archives, students, sessions, journals, notes, transcripts, guides, materials, settings, DOCX, and the CLI:
+See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive-format/TUTOR-FORMAT.md).
 
-```powershell
-cmake --preset portable-base
-cmake --build build/base --target size dist-base
-```
+## Features
 
-The base executable is 37,807,879 bytes (37.8 MB), under the 45,000,000-byte budget. PDF import/export and network providers report a typed unavailable error in this profile; use the full build when those engines are required.
+- Today, Students, Sessions, Schedule, Materials, Guides, Evidence, Assistant, Archive, and Settings.
+- Session detail with Overview, Capture, Transcript, Notes, Materials, Evidence, and Guide tabs.
+- Microphone recording with optional system audio, separate microphone/system tracks, a local mixer, file-based audio import, and local Whisper transcription.
+- Evidence records, approval, timelines, and a linked evidence graph.
+- Cloud AI through reviewed native transports, plus local GGUF inference and an embedded Whisper model.
+- Global FTS5 search with `Ctrl/Cmd+K`.
+- Global goals, skill ratings, evidence timelines, and printable progress reports.
+- ICS calendar import/export, recurring schedule-to-session materialization, reminder notifications, and Google/Microsoft/Apple CalDAV calendar sync.
+- Image OCR with the bundled OCR engine for PNG, JPEG, WebP, BMP, TIFF, and GIF materials.
+- Session packages (`.tutorpkg`) that transfer one session, its student, notes, evidence, guides, materials, and recordings.
+- Archive compaction, search reindexing, recovery copies, and sanitized copies.
+- Manual workspace backups that preserve encryption.
+- Optional SQLCipher workspace encryption and OS credential-store AI/calendar credentials.
 
-See `docs/performance/BUDGETS.md` for the complete budget and current measurements.
+## Deliberate limits
 
-### Interface
-
-The desktop shell is a navigator, a main page, and a session inspector. Journal, Sessions, Students, Materials, Guides, and Settings are first-class pages. The navigator and inspector collapse at the supported breakpoints, long lists are virtualized, and the notebook wraps inside its pane instead of running under the inspector. All colors come from `ui/theme.slint`; light, dark, and system themes are first-class. The headless layout gate renders every supported window size in both themes (`docs/development/UI-TESTING.md`). The current defect audit and remaining gaps are recorded in `docs/development/BUG-AUDIT.md`.
-
-Linux and macOS use the matching static release presets. They must be built and qualified on their target operating systems:
-
-```bash
-cmake --preset portable-static-linux-release
-cmake --build --preset portable-static-linux-release
-ctest --preset portable-static-linux-release
-```
-
-```bash
-cmake --preset portable-static-macos-release
-cmake --build --preset portable-static-macos-release
-ctest --preset portable-static-macos-release
-```
-
-## Everyday workflow
-
-1. Create a student and a session.
-2. Write a short plan in the notebook or attach a worksheet.
-3. Record the lesson, import a recording, or work notes-only.
-4. Add timestamped markers while reviewing the transcript.
-5. Review extracted evidence and approve only what is supported.
-6. Generate a study guide, inspect every source, edit the wording, and approve the revision.
-7. Export the guide or package the session for another tutor.
-
-The same operations are available from the command line:
-
-```powershell
-tutorux archive init Lesson.tux --name "Algebra"
-tutorux --archive Lesson.tux student create --name "Maya Ortiz" --grade 10
-tutorux --archive Lesson.tux session create --subject Mathematics --title "Linear equations"
-tutorux --archive Lesson.tux session list
-tutorux --archive Lesson.tux guide generate --session SESSION_ID
-tutorux --archive Lesson.tux guide export GUIDE_ID --format pdf --output guide.pdf
-```
-
-Run `tutorux --help` for the complete command surface.
-
-## Archive model
-
-A `.tux` archive is a checksummed, append-only record store with:
-
-- atomic commits and crash recovery;
-- B+ tree indexes for records and references;
-- content-addressed asset blobs;
-- optional libsodium encryption and passphrase rotation;
-- revision history for editable records;
-- compaction that preserves live records.
-
-Session packages are portable single-session transfer archives. Full archive copies and sanitized copies retain the same file format. Nothing is extracted into AppData, XDG directories, a sidecar database, or a global cache.
-
-See [`docs/archive-format/TUX-FORMAT-V1.md`](docs/archive-format/TUX-FORMAT-V1.md) and [`docs/archive-format/SESSION-PACKAGE-V1.md`](docs/archive-format/SESSION-PACKAGE-V1.md).
-
-## Privacy and security
-
-- Capture starts only after explicit consent and a visible preflight check.
-- Archive encryption uses Argon2id and XChaCha20-Poly1305 through libsodium.
-- Provider credentials are encrypted with the archive passphrase.
-- Sanitized copies exclude credentials, private annotations, selected students, selected sessions, and selected recordings unless they are explicitly included.
-- External AI requests require a preview, a content hash, and explicit confirmation.
-- Local endpoints are restricted to loopback; remote endpoints require HTTPS.
-
-See [`docs/security/PORTABLE-PRIVACY.md`](docs/security/PORTABLE-PRIVACY.md).
-
-## AI without lock-in
-
-Tutorux does not bundle model weights and does not require an AI provider for the core workflow.
-
-- **Manual mode:** export a source package, send it to any chat agent, then import the structured response.
-- **OpenAI-compatible:** OpenAI, OpenRouter, Groq, DeepSeek, Mistral, Together, Fireworks, xAI, Cerebras, SambaNova, NVIDIA, DeepInfra, Moonshot, Novita, Nebius, SiliconFlow, MiniMax, Alibaba Cloud, Baidu, Tencent Cloud, Volcengine, Amazon Bedrock Mantle, Azure OpenAI, Cloudflare Workers AI, AI21, Z.AI, and custom endpoints.
-- **Native protocols:** Anthropic Messages, Gemini GenerateContent, Cohere Chat v2, Perplexity Agent, and OpenAI Responses.
-- **Local:** Ollama, LM Studio, llama.cpp server, and an optional embedded llama.cpp runtime for Full builds.
-
-Provider capabilities and model IDs are discovered dynamically. Requests validate model compatibility before sending.
-
-See [`docs/ai/`](docs/ai/).
-
-## Testing
-
-The test suite is built from real archives and loopback HTTP fixtures. It covers the archive engine, encryption, recovery, locking, imports, editing, evidence, guides, exports, provider protocols, recording IPC, and the complete CLI command surface.
-
-```powershell
-cmake --preset dev
-cmake --build --preset dev
-ctest --preset dev --output-on-failure
-```
-
-Current suites include:
-
-- archive integrity, discovery, compaction, and cross-process locking;
-- encryption, passphrase rotation, and encrypted credential storage;
-- WAV import/export, timeline, waveform, multitrack failure, and transfer;
-- transcript source parsing, evidence extraction, and evidence revision workflow;
-- document piece-table editing with Unicode boundaries;
-- guide generation, source validation, PDF/DOCX/HTML/Markdown export;
-- local and cloud provider protocol fixtures;
-- sanitized-copy selection and isolation;
-- the release acceptance matrix and every command family.
-
-For a coverage build, configure a separate tree with GCC coverage flags and run the same tests:
-
-```powershell
-cmake -S . -B build/cov -G Ninja -DCMAKE_BUILD_TYPE=Debug `
-  -DBUILD_TESTING=ON -DTUTORUX_BUILD_GUI=OFF -DTUTORUX_FETCH_PODOFO=ON `
-  -DCMAKE_C_FLAGS="--coverage -O0 -g" `
-  -DCMAKE_CXX_FLAGS="--coverage -O0 -g" `
-  -DCMAKE_EXE_LINKER_FLAGS="--coverage"
-cmake --build build/cov
-ctest --test-dir build/cov --output-on-failure
-```
-
-## Project layout
-
-```text
-src/archive/        portable archive engine, encryption, recovery, sanitization
-src/command/        CLI dispatcher, JSON, ZIP, session packages
-src/domain/         students, sessions, annotations, journal, guides
-src/document/       piece-table editor, DOCX and PDF renderers
-src/audio/          capture, playback, timeline, waveform, WAV
-src/transcription/  text/SRT/VTT import and optional Whisper
-src/intelligence/   evidence graph, context packing, scheduling, waveforms
-src/ai/             provider transports and protocol adapters
-src/gui/            Slint desktop controller
-ui/                 Slint interface, theme, panes, overlays
-web/                static browser client sources
-tests/              integration, protocol, and unit suites
-docs/               format, security, AI, audio, and operations documentation
-```
+- Google Calendar and Outlook OAuth require desktop OAuth client credentials from the provider. Apple Calendar uses CalDAV with an app-specific password. Live provider qualification is not included in the test environment.
+- OCR reads image materials. Scanned PDF pages must be converted to images before OCR.
+- The mobile layout is responsive and supports file-based audio attachment, but device-qualified mobile capture has not been run.
+- Reminders fire while Tutorux is open; there is no OS-level background scheduler when the app is closed.
+- Archive recovery creates a verified copy of a healthy workspace. It does not salvage individual rows from a physically corrupted SQLite file.
+- The evidence graph shows links; automated graph analytics are not included.
+- A 1 GiB synthetic workspace qualification passes. The full 100 GB qualification has not been run.
+- Live cloud AI, local GGUF generation, OAuth calendar connections, and real capture-device matrices require external credentials, models, or hardware.
 
 ## Documentation
 
-- [Archive format](docs/archive-format/TUX-FORMAT-V1.md)
-- [Session packages](docs/archive-format/SESSION-PACKAGE-V1.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Workspace format](docs/archive-format/TUTOR-FORMAT.md)
+- [TypeScript development](docs/development/TYPESCRIPT.md)
+- [Releasing](docs/development/RELEASING.md)
+- [Verification](docs/verification.md)
 - [Portable privacy](docs/security/PORTABLE-PRIVACY.md)
-- [Recording and playback](docs/audio/)
-- [Study guide editor](docs/guides/EDITOR-ENGINE.md)
-- [AI providers](docs/ai/)
-- [Diagnostics and benchmarks](docs/diagnostics/DIAGNOSTICS-AND-BENCHMARKS.md)
-- [Dependency pins](docs/dependencies/DEPENDENCY-PINS.md)
-- [Static release builds](docs/dependencies/PORTABLE-STATIC-BUILDS.md)
-
-## Status
-
-Tutorux 1.0 targets the Windows UCRT64 desktop build. Linux and macOS have source-level platform implementations and matching presets; they require qualification on those operating systems. The static WebAssembly client is maintained in the same repository and is built separately from the desktop application.
+- [Performance design](docs/performance/TYPESCRIPT-BASELINE.md)
+- [AI integration](docs/ai/TYPESCRIPT-HANDOFF.md)
+- [Feature inventory](docs/migration/feature-inventory.md)
+- [Production readiness](docs/engineering/PRODUCTION-READINESS.md)
 
 ## License
 
-Tutorux is licensed under GPL-3.0-only. See [`LICENSE`](LICENSE). The Slint runtime and the embedded Noto Sans fonts are distributed under their respective licenses; release packages include the applicable notices.
+Tutorux is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
+
+The bundled OCR models are from the Ocrs project, trained on the HierText dataset by Google Research, and licensed under CC BY-SA 4.0. The attribution is in [src-tauri/resources/ocr/LICENSE.md](src-tauri/resources/ocr/LICENSE.md).
