@@ -20,10 +20,12 @@
         "test": "vitest run",
         "test:coverage": "vitest run --coverage",
         "test:watch": "vitest",
+        "qualify:large": "node scripts/qualify-large-workspace.mjs",
         "tauri": "tauri",
         "dev:desktop": "vite --mode desktop --host 127.0.0.1 --port 1420 --strictPort",
         "desktop:dev": "tauri dev",
-        "desktop:build": "node scripts/build-desktop.mjs"
+        "pdfium:fetch": "node scripts/fetch-pdfium.mjs",
+        "desktop:build": "node scripts/fetch-pdfium.mjs && node scripts/build-desktop.mjs"
     },
     "dependencies": {
         "@tauri-apps/api": "2.12.4",
