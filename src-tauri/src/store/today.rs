@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 use super::{
     content::{
@@ -30,6 +30,16 @@ pub fn today_data(conn: &mut Connection, path: &Path) -> Result<TodayData, Strin
         .iter()
         .find(|session| session.status == "active")
         .cloned();
+    let backup_last_at = conn
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'backup_last_at'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .and_then(|value| value.parse::<i64>().ok());
     Ok(TodayData {
         workspace,
         upcoming,
@@ -37,6 +47,7 @@ pub fn today_data(conn: &mut Connection, path: &Path) -> Result<TodayData, Strin
         recent_sessions,
         students,
         unfinished_session,
+        backup_last_at,
     })
 }
 
