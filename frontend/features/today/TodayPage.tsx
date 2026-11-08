@@ -1,5 +1,11 @@
 import { For, Show, createResource, createSignal, type JSX } from "solid-js";
-import { today as todayApi, sessions as sessionsApi, errorMessage } from "../../api/client";
+import {
+    backup as backupApi,
+    chooseBackupFile,
+    errorMessage,
+    today as todayApi,
+    sessions as sessionsApi,
+} from "../../api/client";
 import {
     Badge,
     Button,
@@ -9,16 +15,24 @@ import {
     Panel,
     PanelHeader,
 } from "../../design-system/ui";
-import { formatDate, formatShortDate, formatTime, initials, daysUntil } from "../../shared/format";
+import {
+    formatBytes,
+    formatDate,
+    formatShortDate,
+    formatTime,
+    initials,
+    daysUntil,
+} from "../../shared/format";
 import { Icon } from "../../shared-ui";
 import { navigate, sessionPath, studentPath } from "../../app/router";
 import { useWorkspace } from "../../app/workspace";
+import { workspaceFileName } from "../../app/workspace-path";
 
 export function TodayPage(): JSX.Element {
     const workspace = useWorkspace();
     const [error, setError] = createSignal("");
     const [starting, setStarting] = createSignal("");
-    const [data] = createResource(todayApi.data);
+    const [data, { refetch }] = createResource(todayApi.data);
 
     async function startSession(id: string, active: boolean): Promise<void> {
         setStarting(id);
@@ -32,6 +46,25 @@ export function TodayPage(): JSX.Element {
             setStarting("");
         }
     }
+
+    async function backUpNow(): Promise<void> {
+        setError("");
+        try {
+            const destination = await chooseBackupFile(workspace.summary()?.name ?? "workspace");
+            if (!destination) return;
+            const result = await backupApi.create(destination);
+            workspace.notify(`Backup saved (${formatBytes(result.bytes)}).`, "success");
+            await refetch();
+        } catch (cause) {
+            setError(errorMessage(cause));
+        }
+    }
+
+    const backupAgeDays = (): number | null => {
+        const last = data()?.backupLastAt;
+        if (!last) return null;
+        return Math.floor((Date.now() - last) / 86_400_000);
+    };
 
     const checklist = (): Array<{
         done: boolean;
@@ -376,8 +409,38 @@ export function TodayPage(): JSX.Element {
                     </Show>
 
                     <Panel>
-                        <PanelHeader title="Workspace" detail={workspace.summary()?.path ?? ""} />
+                        <PanelHeader
+                            title="Workspace health"
+                            detail={
+                                backupAgeDays() === null
+                                    ? "No verified backup yet"
+                                    : backupAgeDays()! > 7
+                                      ? `Last backup ${backupAgeDays()} days ago`
+                                      : `Last backup ${formatDate(data()?.backupLastAt)}`
+                            }
+                            actions={
+                                <Button size="sm" onClick={() => void backUpNow()}>
+                                    Back up now
+                                </Button>
+                            }
+                        />
                         <div class="grid gap-2 px-4 py-3 text-xs text-muted">
+                            <div class="flex justify-between gap-3">
+                                <span>File</span>
+                                <strong
+                                    class="min-w-0 truncate text-right text-ink"
+                                    title={workspace.summary()?.path ?? ""}
+                                >
+                                    {workspace.summary()?.path
+                                        ? workspaceFileName(workspace.summary()!.path)
+                                        : "Unknown"}
+                                </strong>
+                            </div>
+                            <Show when={backupAgeDays() !== null && backupAgeDays()! > 7}>
+                                <div class="rounded-[4px] bg-[var(--warning-soft)] px-2 py-1 text-[11px] text-warning">
+                                    This workspace has not been backed up in over a week.
+                                </div>
+                            </Show>
                             <div class="flex justify-between gap-3">
                                 <span>Students</span>
                                 <strong class="text-ink">
@@ -399,10 +462,7 @@ export function TodayPage(): JSX.Element {
                             <div class="flex justify-between gap-3">
                                 <span>File size</span>
                                 <strong class="text-ink">
-                                    {Math.round(
-                                        (data()?.workspace.sizeBytes ?? 0) / 1024,
-                                    ).toLocaleString()}{" "}
-                                    KB
+                                    {formatBytes(data()?.workspace.sizeBytes ?? 0)}
                                 </strong>
                             </div>
                         </div>
