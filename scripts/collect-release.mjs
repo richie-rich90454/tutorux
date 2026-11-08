@@ -1,6 +1,6 @@
 import { cp, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -65,12 +65,17 @@ if (!existsSync(bundleDirectory)) {
     process.exit(1);
 }
 
+const installerExtensions = new Set([".msi", ".exe", ".dmg", ".appimage", ".deb", ".rpm"]);
+
 const artifacts = [];
 for (const family of await readdir(bundleDirectory, { withFileTypes: true })) {
     if (!family.isDirectory()) continue;
     const familyDirectory = join(bundleDirectory, family.name);
     for (const entry of await readdir(familyDirectory, { withFileTypes: true })) {
-        if (entry.isFile() || entry.name.endsWith(".app")) {
+        const isApp = entry.name.endsWith(".app");
+        const isInstaller =
+            entry.isFile() && installerExtensions.has(extname(entry.name).toLowerCase());
+        if (isApp || isInstaller) {
             artifacts.push({ source: join(familyDirectory, entry.name), name: entry.name });
         }
     }
