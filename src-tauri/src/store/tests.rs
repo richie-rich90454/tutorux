@@ -10,8 +10,9 @@ use super::{
         EvidenceInput, EvidenceLinkInput, ObservationInput, RecordingTrackInput, StudentInput,
     },
     repo::{create_session, create_student, get_session, initialize_workspace, list_students},
-    schedule::{create_schedule, list_schedule, materialize_sessions},
-    schema::SCHEMA_SQL,
+    salvage::salvage_workspace,
+    schedule::{create_schedule, find_conflicts, list_schedule, materialize_sessions},
+    schema::{migrate_workspace, SCHEMA_SQL},
 };
 
 fn workspace() -> Connection {
@@ -115,6 +116,8 @@ fn schedules_recurring_sessions_and_materializes_them() {
             start_at: start,
             duration_min: 60,
             recurrence: "weekly".to_owned(),
+            recurrence_interval: 1,
+            recurrence_until: None,
             location: String::new(),
             notes: String::new(),
         },
@@ -494,6 +497,8 @@ fn returns_lessons_due_within_the_lead_window() {
             start_at: start,
             duration_min: 60,
             recurrence: String::new(),
+            recurrence_interval: 1,
+            recurrence_until: None,
             location: String::new(),
             notes: String::new(),
         },
@@ -707,4 +712,155 @@ fn exports_session_packages_from_encrypted_workspaces() {
     super::repo::initialize_workspace(&target, "Target", "", true).unwrap();
     let imported = super::packages::import_session(&mut target, package.to_str().unwrap()).unwrap();
     assert_eq!(imported.title, "Encrypted lesson");
+}
+
+#[test]
+fn migrates_version_one_workspaces() {
+    let connection = Connection::open_in_memory().unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA application_id = 0x54555452;
+             CREATE TABLE schedule_events (
+                 id TEXT PRIMARY KEY,
+                 student_id TEXT,
+                 title TEXT NOT NULL,
+                 subject TEXT NOT NULL DEFAULT '',
+                 start_at INTEGER NOT NULL,
+                 duration_min INTEGER NOT NULL DEFAULT 60,
+                 recurrence TEXT NOT NULL DEFAULT '',
+                 location TEXT NOT NULL DEFAULT '',
+                 notes TEXT NOT NULL DEFAULT '',
+                 calendar_provider TEXT NOT NULL DEFAULT 'internal',
+                 calendar_account_id TEXT,
+                 external_id TEXT,
+                 external_etag TEXT,
+                 deleted_at INTEGER,
+                 created_at INTEGER NOT NULL,
+                 updated_at INTEGER NOT NULL
+             ) STRICT;
+             PRAGMA user_version = 1;",
+        )
+        .unwrap();
+    migrate_workspace(&connection).unwrap();
+    let columns: Vec<String> = connection
+        .prepare("PRAGMA table_info(schedule_events)")
+        .unwrap()
+        .query_map([], |row| row.get(1))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert!(columns.contains(&"recurrence_interval".to_owned()));
+    assert!(columns.contains(&"recurrence_until".to_owned()));
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 2);
+}
+
+#[test]
+fn recurrence_interval_and_until_limit_materialized_sessions() {
+    let mut connection = workspace();
+    let start = super::models::now_ms() + 86_400_000;
+    let until = start + 4 * 7 * 86_400_000;
+    let event = create_schedule(
+        &mut connection,
+        &super::models::ScheduleInput {
+            student_id: None,
+            title: "Every other week".to_owned(),
+            subject: "Algebra".to_owned(),
+            start_at: start,
+            duration_min: 60,
+            recurrence: "weekly".to_owned(),
+            recurrence_interval: 2,
+            recurrence_until: Some(until),
+            location: String::new(),
+            notes: String::new(),
+        },
+    )
+    .unwrap();
+    materialize_sessions(&mut connection).unwrap();
+    let count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sessions WHERE schedule_event_id = ?1 AND deleted_at IS NULL",
+            [event.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 3);
+}
+
+#[test]
+fn detects_overlapping_schedule_events() {
+    let mut connection = workspace();
+    let start = super::models::now_ms() + 86_400_000;
+    let first = create_schedule(
+        &mut connection,
+        &super::models::ScheduleInput {
+            student_id: None,
+            title: "First".to_owned(),
+            subject: String::new(),
+            start_at: start,
+            duration_min: 60,
+            recurrence: String::new(),
+            recurrence_interval: 1,
+            recurrence_until: None,
+            location: String::new(),
+            notes: String::new(),
+        },
+    )
+    .unwrap();
+    let overlapping = super::models::ScheduleInput {
+        student_id: None,
+        title: "Second".to_owned(),
+        subject: String::new(),
+        start_at: start + 30 * 60_000,
+        duration_min: 60,
+        recurrence: String::new(),
+        recurrence_interval: 1,
+        recurrence_until: None,
+        location: String::new(),
+        notes: String::new(),
+    };
+    let conflicts = find_conflicts(&connection, &overlapping, None).unwrap();
+    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts[0].event_id, first.id);
+    assert!(find_conflicts(&connection, &overlapping, Some(&first.id))
+        .unwrap()
+        .is_empty());
+    let adjacent = super::models::ScheduleInput {
+        start_at: start + 60 * 60_000,
+        ..overlapping
+    };
+    assert!(find_conflicts(&connection, &adjacent, None)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn salvages_readable_rows_into_a_new_workspace() {
+    let directory = tempfile::tempdir().unwrap();
+    let source_path = directory.path().join("source.tutor");
+    let source = Connection::open(&source_path).unwrap();
+    super::repo::apply_connection_pragmas(&source).unwrap();
+    initialize_workspace(&source, "Source", "", false).unwrap();
+    let student = create_student(
+        &source,
+        &StudentInput {
+            display_name: "Maya Ortiz".to_owned(),
+            year: "Year 10".to_owned(),
+            subjects: vec!["Algebra".to_owned()],
+            goals: vec![],
+            notes: "Keep this".to_owned(),
+        },
+    )
+    .unwrap();
+    drop(source);
+    let destination = directory.path().join("recovered.tutor");
+    let report = salvage_workspace(&source_path, destination.to_str().unwrap()).unwrap();
+    assert!(report.copied_rows > 0);
+    assert_eq!(report.integrity, "ok");
+    let recovered = Connection::open(&destination).unwrap();
+    let students = list_students(&recovered, "").unwrap();
+    assert_eq!(students.len(), 1);
+    assert_eq!(students[0].display_name, student.display_name);
 }
