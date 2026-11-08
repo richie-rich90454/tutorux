@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
 use super::{
-    models::{now_ms, ScheduleEvent, ScheduleInput},
+    models::{now_ms, ScheduleConflict, ScheduleEvent, ScheduleInput},
     repo::{get_session, reindex_public, touch_workspace_public},
 };
 
@@ -17,17 +17,19 @@ fn schedule_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ScheduleEvent> {
         start_at: row.get(5)?,
         duration_min: row.get(6)?,
         recurrence: row.get(7)?,
-        location: row.get(8)?,
-        notes: row.get(9)?,
-        calendar_provider: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        recurrence_interval: row.get(8)?,
+        recurrence_until: row.get(9)?,
+        location: row.get(10)?,
+        notes: row.get(11)?,
+        calendar_provider: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
 const SCHEDULE_SELECT: &str = "SELECT e.id, e.student_id, COALESCE(s.display_name, ''), e.title,
-    e.subject, e.start_at, e.duration_min, e.recurrence, e.location, e.notes,
-    e.calendar_provider, e.created_at, e.updated_at
+    e.subject, e.start_at, e.duration_min, e.recurrence, e.recurrence_interval,
+    e.recurrence_until, e.location, e.notes, e.calendar_provider, e.created_at, e.updated_at
     FROM schedule_events e LEFT JOIN students s ON s.id = e.student_id";
 
 pub fn list_schedule(
@@ -74,17 +76,18 @@ pub fn create_schedule(
     if input.duration_min < 5 || input.duration_min > 720 {
         return Err("Lesson duration must be between 5 minutes and 12 hours.".to_owned());
     }
+    let (recurrence, interval, until) = validated_recurrence(input)?;
     let id = Uuid::new_v4().to_string();
     let now = now_ms();
-    let recurrence = normalized_recurrence(&input.recurrence);
     let transaction = conn
         .transaction()
         .map_err(|error| format!("Could not start the schedule update: {error}"))?;
     transaction
         .execute(
             "INSERT INTO schedule_events (id, student_id, title, subject, start_at, duration_min,
-             recurrence, location, notes, calendar_provider, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'internal', ?10, ?10)",
+             recurrence, recurrence_interval, recurrence_until, location, notes, calendar_provider,
+             created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'internal', ?12, ?12)",
             params![
                 id,
                 input.student_id,
@@ -93,6 +96,8 @@ pub fn create_schedule(
                 input.start_at,
                 input.duration_min,
                 recurrence,
+                interval,
+                until,
                 input.location.trim(),
                 input.notes.trim(),
                 now
@@ -116,7 +121,10 @@ pub fn update_schedule(
     if title.is_empty() {
         return Err("Enter a title for the scheduled lesson.".to_owned());
     }
-    let recurrence = normalized_recurrence(&input.recurrence);
+    if input.duration_min < 5 || input.duration_min > 720 {
+        return Err("Lesson duration must be between 5 minutes and 12 hours.".to_owned());
+    }
+    let (recurrence, interval, until) = validated_recurrence(input)?;
     let now = now_ms();
     let transaction = conn
         .transaction()
@@ -124,7 +132,8 @@ pub fn update_schedule(
     let changed = transaction
         .execute(
             "UPDATE schedule_events SET student_id = ?2, title = ?3, subject = ?4, start_at = ?5,
-             duration_min = ?6, recurrence = ?7, location = ?8, notes = ?9, updated_at = ?10
+             duration_min = ?6, recurrence = ?7, recurrence_interval = ?8, recurrence_until = ?9,
+             location = ?10, notes = ?11, updated_at = ?12
              WHERE id = ?1 AND deleted_at IS NULL",
             params![
                 id,
@@ -134,6 +143,8 @@ pub fn update_schedule(
                 input.start_at,
                 input.duration_min,
                 recurrence,
+                interval,
+                until,
                 input.location.trim(),
                 input.notes.trim(),
                 now
@@ -187,42 +198,173 @@ fn normalized_recurrence(value: &str) -> &str {
     }
 }
 
-fn occurrence(start_ms: i64, recurrence: &str, index: u32) -> Option<i64> {
-    if index == 0 {
-        return Some(start_ms);
+fn validated_recurrence(input: &ScheduleInput) -> Result<(&str, i64, Option<i64>), String> {
+    if !(1..=52).contains(&input.recurrence_interval) {
+        return Err("Repeat interval must be between 1 and 52.".to_owned());
+    }
+    let recurrence = normalized_recurrence(&input.recurrence);
+    let until = if recurrence.is_empty() {
+        None
+    } else {
+        input.recurrence_until
+    };
+    if until.is_some_and(|limit| limit < input.start_at) {
+        return Err("The repeat end date cannot be before the lesson starts.".to_owned());
+    }
+    Ok((recurrence, input.recurrence_interval, until))
+}
+
+fn occurrence(
+    start_ms: i64,
+    recurrence: &str,
+    interval: i64,
+    until: Option<i64>,
+    index: u32,
+) -> Option<i64> {
+    if recurrence.is_empty() {
+        return (index == 0).then_some(start_ms);
     }
     let start = Utc.timestamp_millis_opt(start_ms).single()?;
-    match recurrence {
-        "daily" => Some((start + Duration::days(i64::from(index))).timestamp_millis()),
-        "weekly" => Some((start + Duration::weeks(i64::from(index))).timestamp_millis()),
-        "biweekly" => Some((start + Duration::weeks(i64::from(index) * 2)).timestamp_millis()),
+    let step = index as i32 * interval.max(1) as i32;
+    let slot = match recurrence {
+        "daily" => (start + Duration::days(i64::from(step))).timestamp_millis(),
+        "weekly" => (start + Duration::weeks(i64::from(step))).timestamp_millis(),
+        "biweekly" => (start + Duration::weeks(i64::from(step) * 2)).timestamp_millis(),
         "monthly" => {
-            let total_month = start.month0() as i32 + index as i32;
+            let total_month = start.month0() as i32 + step;
             let year = start.year() + total_month / 12;
             let month = (total_month % 12) as u32 + 1;
             let day = start.day();
             let date = chrono::NaiveDate::from_ymd_opt(year, month, day)
                 .or_else(|| chrono::NaiveDate::from_ymd_opt(year, month, 28))?;
             let time = start.time();
-            Some(
-                Utc.from_utc_datetime(&date.and_time(time))
-                    .timestamp_millis(),
-            )
+            Utc.from_utc_datetime(&date.and_time(time))
+                .timestamp_millis()
         }
-        _ => None,
+        _ => return None,
+    };
+    if until.is_some_and(|limit| slot > limit) {
+        return None;
     }
+    Some(slot)
+}
+
+pub fn find_conflicts(
+    conn: &Connection,
+    input: &ScheduleInput,
+    ignore_id: Option<&str>,
+) -> Result<Vec<ScheduleConflict>, String> {
+    if input.duration_min < 5 || input.duration_min > 720 {
+        return Err("Lesson duration must be between 5 minutes and 12 hours.".to_owned());
+    }
+    let (recurrence, interval, until) = validated_recurrence(input)?;
+    let horizon = input.start_at + Duration::weeks(26).num_milliseconds();
+    let mut input_slots = Vec::new();
+    for index in 0..64 {
+        let Some(slot) = occurrence(input.start_at, recurrence, interval, until, index) else {
+            break;
+        };
+        if slot > horizon {
+            break;
+        }
+        input_slots.push(slot);
+    }
+    let duration_ms = input.duration_min * 60_000;
+    let mut statement = conn
+        .prepare(
+            "SELECT id, student_id, COALESCE((SELECT display_name FROM students s
+                WHERE s.id = e.student_id), ''), title, start_at, duration_min, recurrence,
+                recurrence_interval, recurrence_until
+             FROM schedule_events e
+             WHERE e.deleted_at IS NULL AND e.start_at <= ?1
+             ORDER BY e.start_at ASC LIMIT 2000",
+        )
+        .map_err(|error| format!("Could not read the schedule: {error}"))?;
+    let rows = statement
+        .query_map(params![horizon], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, i64>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, Option<i64>>(8)?,
+            ))
+        })
+        .map_err(|error| format!("Could not read the schedule: {error}"))?;
+    let mut conflicts = Vec::new();
+    for row in rows {
+        let (
+            event_id,
+            student_id,
+            student_name,
+            title,
+            start_at,
+            duration,
+            event_recurrence,
+            event_interval,
+            event_until,
+        ) = row.map_err(|error| format!("Could not read the schedule: {error}"))?;
+        if ignore_id == Some(event_id.as_str()) {
+            continue;
+        }
+        let event_horizon = horizon.max(start_at);
+        for index in 0..64 {
+            let Some(event_start) = occurrence(
+                start_at,
+                &event_recurrence,
+                event_interval,
+                event_until,
+                index,
+            ) else {
+                break;
+            };
+            if event_start > event_horizon {
+                break;
+            }
+            let event_end = event_start + duration * 60_000;
+            let overlaps = input_slots.iter().any(|slot| {
+                let slot_end = slot + duration_ms;
+                *slot < event_end && event_start < slot_end
+            });
+            if overlaps {
+                conflicts.push(ScheduleConflict {
+                    event_id,
+                    title,
+                    student_name,
+                    start_at: event_start,
+                    end_at: event_end,
+                    same_student: input.student_id.is_some() && input.student_id == student_id,
+                });
+                break;
+            }
+        }
+    }
+    conflicts.sort_by_key(|conflict| conflict.start_at);
+    Ok(conflicts)
 }
 
 pub fn materialize_sessions(conn: &mut Connection) -> Result<(), String> {
-    let events: Vec<(String, i64, String)> = {
+    let events: Vec<(String, i64, String, i64, Option<i64>)> = {
         let mut statement = conn
             .prepare(
-                "SELECT id, start_at, recurrence FROM schedule_events
-                 WHERE deleted_at IS NULL AND recurrence != ''",
+                "SELECT id, start_at, recurrence, recurrence_interval, recurrence_until
+                 FROM schedule_events WHERE deleted_at IS NULL AND recurrence != ''",
             )
             .map_err(|error| format!("Could not read recurring lessons: {error}"))?;
         let rows = statement
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
             .map_err(|error| format!("Could not read recurring lessons: {error}"))?;
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|error| format!("Could not read recurring lessons: {error}"))?
@@ -231,9 +373,9 @@ pub fn materialize_sessions(conn: &mut Connection) -> Result<(), String> {
         .transaction()
         .map_err(|error| format!("Could not expand recurring lessons: {error}"))?;
     let horizon = now_ms() + Duration::weeks(12).num_milliseconds();
-    for (event_id, start_at, recurrence) in events {
+    for (event_id, start_at, recurrence, interval, until) in events {
         for index in 0..64 {
-            let Some(slot) = occurrence(start_at, &recurrence, index) else {
+            let Some(slot) = occurrence(start_at, &recurrence, interval, until, index) else {
                 break;
             };
             if slot > horizon {
@@ -251,11 +393,12 @@ pub fn materialize_sessions(conn: &mut Connection) -> Result<(), String> {
 }
 
 fn materialize_event(conn: &Connection, event_id: &str) -> Result<(), String> {
-    let (start_at, recurrence): (i64, String) = conn
+    let (start_at, recurrence, interval, until): (i64, String, i64, Option<i64>) = conn
         .query_row(
-            "SELECT start_at, recurrence FROM schedule_events WHERE id = ?1 AND deleted_at IS NULL",
+            "SELECT start_at, recurrence, recurrence_interval, recurrence_until
+             FROM schedule_events WHERE id = ?1 AND deleted_at IS NULL",
             params![event_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(|error| format!("Could not read the scheduled lesson: {error}"))?;
     if recurrence.is_empty() {
@@ -264,7 +407,7 @@ fn materialize_event(conn: &Connection, event_id: &str) -> Result<(), String> {
     }
     let horizon = now_ms() + Duration::weeks(12).num_milliseconds();
     for index in 0..64 {
-        let Some(slot) = occurrence(start_at, &recurrence, index) else {
+        let Some(slot) = occurrence(start_at, &recurrence, interval, until, index) else {
             break;
         };
         if slot > horizon {
