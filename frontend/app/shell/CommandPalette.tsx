@@ -1,23 +1,59 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type JSX } from "solid-js";
-import { search as searchApi, errorMessage } from "../../api/client";
+import {
+    backup as backupApi,
+    chooseBackupFile,
+    search as searchApi,
+    errorMessage,
+} from "../../api/client";
 import type { SearchHit } from "../../api/types";
 import { Icon, type IconName } from "../../shared-ui";
 import { navigate, guidePath, sessionPath, studentPath } from "../router";
+import { useWorkspace } from "../workspace";
 
 interface PaletteItem {
     id: string;
     label: string;
     detail: string;
     icon: IconName;
+    group: string;
     run: () => void;
 }
 
+function modifierLabel(): string {
+    return navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl";
+}
+
 const commandItems: PaletteItem[] = [
+    {
+        id: "new-session",
+        label: "New session",
+        detail: "Create a lesson record",
+        icon: "plus",
+        group: "Actions",
+        run: () => navigate("/sessions?new=1"),
+    },
+    {
+        id: "new-student",
+        label: "New student",
+        detail: "Add a learner",
+        icon: "students",
+        group: "Actions",
+        run: () => navigate("/students?new=1"),
+    },
+    {
+        id: "settings",
+        label: "Settings",
+        detail: "Appearance and preferences",
+        icon: "settings",
+        group: "Navigate",
+        run: () => navigate("/settings"),
+    },
     {
         id: "today",
         label: "Today",
         detail: "Open the daily workspace",
         icon: "home",
+        group: "Navigate",
         run: () => navigate("/today"),
     },
     {
@@ -25,6 +61,7 @@ const commandItems: PaletteItem[] = [
         label: "Students",
         detail: "Browse learners",
         icon: "students",
+        group: "Navigate",
         run: () => navigate("/students"),
     },
     {
@@ -32,6 +69,7 @@ const commandItems: PaletteItem[] = [
         label: "Sessions",
         detail: "Browse lessons",
         icon: "sessions",
+        group: "Navigate",
         run: () => navigate("/sessions"),
     },
     {
@@ -39,6 +77,7 @@ const commandItems: PaletteItem[] = [
         label: "Schedule",
         detail: "Open the lesson schedule",
         icon: "calendar",
+        group: "Navigate",
         run: () => navigate("/schedule"),
     },
     {
@@ -46,6 +85,7 @@ const commandItems: PaletteItem[] = [
         label: "Materials",
         detail: "Open the library",
         icon: "assets",
+        group: "Navigate",
         run: () => navigate("/materials"),
     },
     {
@@ -53,6 +93,7 @@ const commandItems: PaletteItem[] = [
         label: "Guides",
         detail: "Open study guides",
         icon: "guides",
+        group: "Navigate",
         run: () => navigate("/guides"),
     },
     {
@@ -60,6 +101,7 @@ const commandItems: PaletteItem[] = [
         label: "Evidence",
         detail: "Open learning evidence",
         icon: "evidence",
+        group: "Navigate",
         run: () => navigate("/evidence"),
     },
     {
@@ -67,6 +109,7 @@ const commandItems: PaletteItem[] = [
         label: "Assistant",
         detail: "Summaries, guides, feedback",
         icon: "spark",
+        group: "Navigate",
         run: () => navigate("/assistant"),
     },
     {
@@ -74,14 +117,8 @@ const commandItems: PaletteItem[] = [
         label: "Archive",
         detail: "Backups and workspace health",
         icon: "archive",
+        group: "Navigate",
         run: () => navigate("/archive"),
-    },
-    {
-        id: "settings",
-        label: "Settings",
-        detail: "Appearance and preferences",
-        icon: "settings",
-        run: () => navigate("/settings"),
     },
 ];
 
@@ -144,18 +181,60 @@ function hitLabel(type: string): string {
 }
 
 export function CommandPalette(props: { open: boolean; onClose: () => void }): JSX.Element {
+    const workspace = useWorkspace();
     const [query, setQuery] = createSignal("");
     const [hits, setHits] = createSignal<SearchHit[]>([]);
     const [active, setActive] = createSignal(0);
     const [message, setMessage] = createSignal("");
     let input: HTMLInputElement | undefined;
+    let dialog: HTMLDivElement | undefined;
+    let previousFocus: HTMLElement | null = null;
     let timer = 0;
     let requestVersion = 0;
 
+    async function backUpNow(): Promise<void> {
+        try {
+            const destination = await chooseBackupFile(workspace.summary()?.name ?? "workspace");
+            if (!destination) return;
+            await backupApi.create(destination);
+            workspace.notify("Backup saved.", "success");
+        } catch (cause) {
+            workspace.notify(errorMessage(cause), "danger");
+        }
+    }
+
+    const allCommands = (): PaletteItem[] => [
+        ...commandItems,
+        {
+            id: "backup-now",
+            label: "Back up now",
+            detail: "Save a verified backup copy",
+            icon: "archive",
+            group: "Actions",
+            run: () => void backUpNow(),
+        },
+        {
+            id: "toggle-theme",
+            label: "Toggle theme",
+            detail: "Switch between light and dark",
+            icon: "spark",
+            group: "Actions",
+            run: () => workspace.setThemeMode(workspace.themeMode() === "dark" ? "light" : "dark"),
+        },
+        {
+            id: "open-workspace",
+            label: "Open workspace",
+            detail: "Choose another .tutor file",
+            icon: "folder",
+            group: "Actions",
+            run: () => void workspace.openWorkspace(),
+        },
+    ];
+
     const commands = (): PaletteItem[] => {
         const needle = query().trim().toLowerCase();
-        if (!needle) return commandItems;
-        return commandItems.filter((item) =>
+        if (!needle) return allCommands();
+        return allCommands().filter((item) =>
             `${item.label} ${item.detail}`.toLowerCase().includes(needle),
         );
     };
@@ -167,9 +246,10 @@ export function CommandPalette(props: { open: boolean; onClose: () => void }): J
             label: hit.title || hitLabel(hit.entityType),
             detail: `${hitLabel(hit.entityType)} · ${hit.snippet.replace(/<[^>]+>/gu, "")}`,
             icon: hitIcon(hit.entityType),
+            group: "Records",
             run: () => navigate(hitRoute(hit)),
         }));
-        return [...hitResults, ...commandResults];
+        return [...commandResults, ...hitResults];
     };
 
     createEffect(() => {
@@ -199,11 +279,15 @@ export function CommandPalette(props: { open: boolean; onClose: () => void }): J
 
     createEffect(() => {
         if (props.open) {
+            previousFocus = document.activeElement as HTMLElement | null;
             setQuery("");
             setHits([]);
             setActive(0);
             setMessage("");
             window.requestAnimationFrame(() => input?.focus());
+        } else if (previousFocus) {
+            previousFocus.focus();
+            previousFocus = null;
         }
     });
 
@@ -219,6 +303,22 @@ export function CommandPalette(props: { open: boolean; onClose: () => void }): J
             if (event.key === "Escape") {
                 event.preventDefault();
                 props.onClose();
+                return;
+            }
+            if (event.key === "Tab") {
+                const focusable = dialog?.querySelectorAll<HTMLElement>(
+                    'input, button, [href], [tabindex]:not([tabindex="-1"])',
+                );
+                if (!focusable || focusable.length === 0) return;
+                const first = focusable[0]!;
+                const last = focusable[focusable.length - 1]!;
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                }
                 return;
             }
             if (event.key === "ArrowDown") {
@@ -247,6 +347,7 @@ export function CommandPalette(props: { open: boolean; onClose: () => void }): J
             <div class="fixed inset-0 z-50 grid place-items-start justify-center bg-black/50 px-4 pt-[12vh]">
                 <div class="absolute inset-0" onClick={() => props.onClose()} />
                 <div
+                    ref={(element) => (dialog = element)}
                     class="relative z-10 w-full max-w-[640px] rounded-[8px] border border-line-strong bg-surface"
                     role="dialog"
                     aria-modal="true"
@@ -277,38 +378,50 @@ export function CommandPalette(props: { open: boolean; onClose: () => void }): J
                         >
                             <For each={items()}>
                                 {(item, index) => (
-                                    <button
-                                        type="button"
-                                        class={
-                                            index() === active()
-                                                ? "flex w-full items-start gap-2.5 rounded-[5px] bg-accent-soft px-2.5 py-2 text-left"
-                                                : "flex w-full items-start gap-2.5 rounded-[5px] px-2.5 py-2 text-left hover:bg-surface-inset"
-                                        }
-                                        onMouseEnter={() => setActive(index())}
-                                        onClick={() => {
-                                            item.run();
-                                            props.onClose();
-                                        }}
-                                    >
-                                        <span class="mt-0.5 text-accent">
-                                            <Icon name={item.icon} />
-                                        </span>
-                                        <span class="grid min-w-0 gap-0.5">
-                                            <strong class="truncate text-[13px] font-medium text-ink">
-                                                {item.label}
-                                            </strong>
-                                            <span class="line-clamp-1 text-xs text-muted">
-                                                {item.detail}
+                                    <>
+                                        <Show
+                                            when={
+                                                index() === 0 ||
+                                                items()[index() - 1]?.group !== item.group
+                                            }
+                                        >
+                                            <div class="px-2.5 pb-0.5 pt-2 text-[10px] font-medium text-faint">
+                                                {item.group}
+                                            </div>
+                                        </Show>
+                                        <button
+                                            type="button"
+                                            class={
+                                                index() === active()
+                                                    ? "flex w-full items-start gap-2.5 rounded-[5px] bg-accent-soft px-2.5 py-2 text-left"
+                                                    : "flex w-full items-start gap-2.5 rounded-[5px] px-2.5 py-2 text-left hover:bg-surface-inset"
+                                            }
+                                            onMouseEnter={() => setActive(index())}
+                                            onClick={() => {
+                                                item.run();
+                                                props.onClose();
+                                            }}
+                                        >
+                                            <span class="mt-0.5 text-accent">
+                                                <Icon name={item.icon} />
                                             </span>
-                                        </span>
-                                    </button>
+                                            <span class="grid min-w-0 gap-0.5">
+                                                <strong class="truncate text-[13px] font-medium text-ink">
+                                                    {item.label}
+                                                </strong>
+                                                <span class="line-clamp-1 text-xs text-muted">
+                                                    {item.detail}
+                                                </span>
+                                            </span>
+                                        </button>
+                                    </>
                                 )}
                             </For>
                         </Show>
                     </div>
                     <div class="flex items-center justify-between border-t border-line-soft px-3 py-2 text-[11px] text-faint">
                         <span>Type to search the whole workspace</span>
-                        <span>{current() ? "Enter to open" : "Ctrl K"}</span>
+                        <span>{current() ? "Enter to open" : `${modifierLabel()} K`}</span>
                     </div>
                 </div>
             </div>
