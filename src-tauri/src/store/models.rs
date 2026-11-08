@@ -96,6 +96,8 @@ pub struct ScheduleEvent {
     pub start_at: i64,
     pub duration_min: i64,
     pub recurrence: String,
+    pub recurrence_interval: i64,
+    pub recurrence_until: Option<i64>,
     pub location: String,
     pub notes: String,
     pub calendar_provider: String,
@@ -112,8 +114,27 @@ pub struct ScheduleInput {
     pub start_at: i64,
     pub duration_min: i64,
     pub recurrence: String,
+    #[serde(default = "default_recurrence_interval")]
+    pub recurrence_interval: i64,
+    #[serde(default)]
+    pub recurrence_until: Option<i64>,
     pub location: String,
     pub notes: String,
+}
+
+fn default_recurrence_interval() -> i64 {
+    1
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScheduleConflict {
+    pub event_id: String,
+    pub title: String,
+    pub student_name: String,
+    pub start_at: i64,
+    pub end_at: i64,
+    pub same_student: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -399,6 +420,7 @@ pub struct TodayData {
     pub recent_sessions: Vec<Session>,
     pub students: Vec<Student>,
     pub unfinished_session: Option<Session>,
+    pub backup_last_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -431,6 +453,17 @@ pub struct SessionDetail {
 pub struct BackupResult {
     pub path: String,
     pub bytes: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SalvageReport {
+    pub path: String,
+    pub copied_rows: i64,
+    pub skipped_rows: i64,
+    pub tables: std::collections::HashMap<String, i64>,
+    pub warnings: Vec<String>,
+    pub integrity: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
