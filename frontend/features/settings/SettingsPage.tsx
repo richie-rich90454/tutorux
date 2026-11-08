@@ -39,6 +39,7 @@ export function SettingsPage(): JSX.Element {
     const [caldavPassword, setCaldavPassword] = createSignal("");
     const [calendarBusy, setCalendarBusy] = createSignal("");
     const [calendarMessage, setCalendarMessage] = createSignal("");
+    const shortcut = navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl";
 
     createEffect(() => {
         const values = settings();
@@ -188,7 +189,7 @@ export function SettingsPage(): JSX.Element {
                 <Panel>
                     <PanelHeader
                         title="Appearance"
-                        detail="Neutral surfaces with a green accent for actions, navigation, and status."
+                        detail="Theme and layout preferences for this device."
                     />
                     <div class="grid gap-3 p-4 sm:grid-cols-2">
                         <Field label="Theme">
@@ -264,7 +265,7 @@ export function SettingsPage(): JSX.Element {
                         <Show when={calendarMessage()}>
                             <InlineNotice tone="success">{calendarMessage()}</InlineNotice>
                         </Show>
-                        <div class="grid gap-3 rounded-[5px] border border-line-soft p-3 sm:grid-cols-2">
+                        <div class="grid gap-3 rounded-[5px] bg-surface-subtle p-3 sm:grid-cols-2">
                             <strong class="sm:col-span-2 text-xs font-medium text-ink">
                                 Google Calendar
                             </strong>
@@ -303,7 +304,7 @@ export function SettingsPage(): JSX.Element {
                                 </Button>
                             </div>
                         </div>
-                        <div class="grid gap-3 rounded-[5px] border border-line-soft p-3 sm:grid-cols-2">
+                        <div class="grid gap-3 rounded-[5px] bg-surface-subtle p-3 sm:grid-cols-2">
                             <strong class="sm:col-span-2 text-xs font-medium text-ink">
                                 Microsoft Outlook
                             </strong>
@@ -344,7 +345,7 @@ export function SettingsPage(): JSX.Element {
                                 </Button>
                             </div>
                         </div>
-                        <div class="grid gap-3 rounded-[5px] border border-line-soft p-3 sm:grid-cols-2">
+                        <div class="grid gap-3 rounded-[5px] bg-surface-subtle p-3 sm:grid-cols-2">
                             <strong class="sm:col-span-2 text-xs font-medium text-ink">
                                 Apple Calendar (CalDAV)
                             </strong>
@@ -479,13 +480,13 @@ export function SettingsPage(): JSX.Element {
                         <div class="flex justify-between gap-3">
                             <span>Search workspace</span>
                             <kbd class="rounded-[4px] border border-line-soft bg-surface-subtle px-1.5 py-0.5">
-                                Ctrl K
+                                {shortcut} K
                             </kbd>
                         </div>
                         <div class="flex justify-between gap-3">
                             <span>Save now</span>
                             <kbd class="rounded-[4px] border border-line-soft bg-surface-subtle px-1.5 py-0.5">
-                                Ctrl S
+                                {shortcut} S
                             </kbd>
                         </div>
                         <div class="flex justify-between gap-3">
