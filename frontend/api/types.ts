@@ -86,6 +86,8 @@ export interface ScheduleEvent {
     startAt: number;
     durationMin: number;
     recurrence: string;
+    recurrenceInterval: number;
+    recurrenceUntil: number | null;
     location: string;
     notes: string;
     calendarProvider: string;
@@ -100,8 +102,19 @@ export interface ScheduleInput {
     startAt: number;
     durationMin: number;
     recurrence: string;
+    recurrenceInterval: number;
+    recurrenceUntil: number | null;
     location: string;
     notes: string;
+}
+
+export interface ScheduleConflict {
+    eventId: string;
+    title: string;
+    studentName: string;
+    startAt: number;
+    endAt: number;
+    sameStudent: boolean;
 }
 
 export interface JournalEntry {
@@ -332,6 +345,7 @@ export interface TodayData {
     recentSessions: Session[];
     students: Student[];
     unfinishedSession: Session | null;
+    backupLastAt: number | null;
 }
 
 export interface StudentDetail {
@@ -347,6 +361,15 @@ export interface StudentDetail {
 export interface BackupResult {
     path: string;
     bytes: number;
+}
+
+export interface SalvageReport {
+    path: string;
+    copiedRows: number;
+    skippedRows: number;
+    tables: Record<string, number>;
+    warnings: string[];
+    integrity: string;
 }
 
 export interface MaintenanceResult {
@@ -396,4 +419,18 @@ export interface CalendarSyncResult {
     created: number;
     updated: number;
     removed: number;
+}
+
+export interface CalendarEvent {
+    externalId: string;
+    title: string;
+    startAt: number;
+    durationMin: number;
+    recurrence: string;
+    recurrenceInterval: number;
+    recurrenceUntil: number | null;
+    location: string;
+    notes: string;
+    cancelled: boolean;
+    etag: string;
 }
