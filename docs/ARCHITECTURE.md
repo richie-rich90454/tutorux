@@ -24,7 +24,7 @@ The application shell. It owns:
 - the workspace provider and archive lifecycle;
 - the command palette;
 - the native-menu event listener;
-- the welcome screen and saved-workspace reopening.
+- the welcome screen and saved-workspace reopening, including ignoring remembered temporary workspaces from smoke runs;
 
 No page reads an archive file directly.
 
@@ -82,6 +82,7 @@ The persistent workspace:
 - `packages.rs` — portable `.tutorpkg` session export/import;
 - `reminders.rs` — due-lesson reminders for desktop notifications;
 - `trash.rs` — 90-day Trash listing, restore, permanent deletion;
+- `salvage.rs` — best-effort row recovery into a new workspace;
 - `settings.rs` — key/value settings and workspace rename;
 - `mod.rs` — the Tauri command surface.
 
@@ -152,9 +153,10 @@ A single FTS5 table indexes students, sessions, journal entries, observations, t
 ## OCR
 
 - OCR runs locally with embedded Ocrs models.
-- Supported material formats are PNG, JPEG, WebP, BMP, TIFF, and GIF.
+- Supported image formats are PNG, JPEG, WebP, BMP, TIFF, and GIF.
+- PDF pages are rendered locally with bundled PDFium. Embedded text is used when a page already has enough text; low-text pages are rasterized and OCRed.
 - Extracted text is stored on the material and indexed for search.
-- Scanned PDF pages are not rendered by OCR in this build.
+- The PDFium runtime is fetched by `pnpm run pdfium:fetch` and bundled by the release build.
 
 ## Reminders
 
