@@ -16,6 +16,8 @@ import {
     workspace as workspaceApi,
 } from "../api/client";
 import type { WorkspaceSummary } from "../api/types";
+import { navigate } from "./router";
+import { isRestorableWorkspacePath } from "./workspace-path";
 
 type Tone = "info" | "success" | "danger";
 type ThemeMode = "light" | "dark" | "system";
@@ -25,9 +27,16 @@ interface Notice {
     tone: Tone;
 }
 
+export interface RecentWorkspace {
+    path: string;
+    name: string;
+    openedAt: number;
+}
+
 interface WorkspaceContextValue {
     summary: Accessor<WorkspaceSummary | null>;
     loading: Accessor<boolean>;
+    restoring: Accessor<boolean>;
     busy: Accessor<boolean>;
     error: Accessor<string>;
     notice: Accessor<Notice | null>;
@@ -35,12 +44,14 @@ interface WorkspaceContextValue {
     dirty: Accessor<boolean>;
     themeMode: Accessor<ThemeMode>;
     encryptedPath: Accessor<string>;
+    recent: Accessor<RecentWorkspace[]>;
     createWorkspace: (name: string, description: string, passphrase?: string) => Promise<boolean>;
     openWorkspace: () => Promise<boolean>;
     openWorkspacePath: (path: string) => Promise<boolean>;
     unlockWorkspace: (passphrase: string) => Promise<boolean>;
     cancelUnlock: () => void;
     closeWorkspace: () => Promise<void>;
+    forgetRecent: (path: string) => void;
     refresh: () => Promise<void>;
     renameWorkspace: (name: string, description: string) => Promise<boolean>;
     rekeyWorkspace: (newPassphrase: string) => Promise<boolean>;
@@ -57,6 +68,31 @@ const WorkspaceContext = createContext<WorkspaceContextValue>();
 const LAST_PATH_KEY = "tutorux.lastWorkspace";
 const MODE_KEY = "tutorux.mode";
 const THEME_KEY = "tutorux.theme";
+const RECENT_KEY = "tutorux.recentWorkspaces";
+const RECENT_LIMIT = 5;
+
+function readRecentWorkspaces(): RecentWorkspace[] {
+    try {
+        const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .filter(
+                (item): item is RecentWorkspace =>
+                    typeof item === "object" &&
+                    item !== null &&
+                    typeof (item as RecentWorkspace).path === "string" &&
+                    typeof (item as RecentWorkspace).name === "string" &&
+                    typeof (item as RecentWorkspace).openedAt === "number",
+            )
+            .slice(0, RECENT_LIMIT);
+    } catch {
+        return [];
+    }
+}
+
+function writeRecentWorkspaces(items: RecentWorkspace[]): void {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(items.slice(0, RECENT_LIMIT)));
+}
 
 function validTheme(value: string | null): value is ThemeMode {
     return value === "light" || value === "dark" || value === "system";
@@ -66,9 +102,11 @@ export function WorkspaceProvider(props: { children: JSX.Element }): JSX.Element
     applyDocumentTailwindUtilities();
     const [summary, setSummary] = createSignal<WorkspaceSummary | null>(null);
     const [loading, setLoading] = createSignal(false);
+    const [restoring, setRestoring] = createSignal(Boolean(localStorage.getItem(LAST_PATH_KEY)));
     const [busy, setBusy] = createSignal(false);
     const [error, setError] = createSignal("");
     const [notice, setNotice] = createSignal<Notice | null>(null);
+    const [recent, setRecent] = createSignal<RecentWorkspace[]>(readRecentWorkspaces());
     const [simpleMode, setSimpleModeSignal] = createSignal(
         localStorage.getItem(MODE_KEY) !== "advanced",
     );
@@ -98,15 +136,16 @@ export function WorkspaceProvider(props: { children: JSX.Element }): JSX.Element
             if (themeMode() === "system") applyTheme("system");
         };
         media.addEventListener("change", onChange);
-        const lastPath = localStorage.getItem(LAST_PATH_KEY);
         const openPath = (path: string): Promise<void> => {
             setLoading(true);
             return workspaceApi
                 .open(path)
                 .then((value) => {
                     localStorage.setItem(LAST_PATH_KEY, path);
+                    rememberWorkspace(path, value.name);
                     setSummary(value);
                     setError("");
+                    navigate("/today");
                 })
                 .catch((cause: unknown) => {
                     const message = errorMessage(cause);
@@ -118,12 +157,24 @@ export function WorkspaceProvider(props: { children: JSX.Element }): JSX.Element
                 })
                 .finally(() => setLoading(false));
         };
-        void (lastPath ? openPath(lastPath) : Promise.resolve()).then(() =>
-            invoke<string | null>("take_pending_open_archive").then((path) => {
-                if (path) return openPath(path);
-                return undefined;
-            }),
-        );
+        const restore = async (): Promise<void> => {
+            const pending = await invoke<string | null>("take_pending_open_archive").catch(
+                () => null,
+            );
+            if (pending) {
+                await openPath(pending);
+                return;
+            }
+            const lastPath = localStorage.getItem(LAST_PATH_KEY);
+            if (!lastPath) return;
+            const temporary = await invoke<string>("system_temp_directory").catch(() => "");
+            if (!isRestorableWorkspacePath(lastPath, temporary)) {
+                localStorage.removeItem(LAST_PATH_KEY);
+                return;
+            }
+            await openPath(lastPath);
+        };
+        void restore().finally(() => setRestoring(false));
         onCleanup(() => media.removeEventListener("change", onChange));
     });
 
@@ -133,12 +184,33 @@ export function WorkspaceProvider(props: { children: JSX.Element }): JSX.Element
         noticeTimer = window.setTimeout(() => setNotice(null), 4000);
     };
 
+    const rememberWorkspace = (path: string, name: string): void => {
+        const entry: RecentWorkspace = { path, name, openedAt: Date.now() };
+        const next = [entry, ...recent().filter((item) => item.path !== path)].slice(
+            0,
+            RECENT_LIMIT,
+        );
+        setRecent(next);
+        writeRecentWorkspaces(next);
+    };
+
+    const forgetRecent = (path: string): void => {
+        const next = recent().filter((item) => item.path !== path);
+        setRecent(next);
+        writeRecentWorkspaces(next);
+        if (localStorage.getItem(LAST_PATH_KEY) === path) {
+            localStorage.removeItem(LAST_PATH_KEY);
+        }
+    };
+
     const acceptOpened = (path: string, value: WorkspaceSummary): void => {
         localStorage.setItem(LAST_PATH_KEY, path);
+        rememberWorkspace(path, value.name);
         setSummary(value);
         setDirty(false);
         setEncryptedPath("");
         setError("");
+        navigate("/today");
     };
 
     const createWorkspace = async (
@@ -301,6 +373,7 @@ export function WorkspaceProvider(props: { children: JSX.Element }): JSX.Element
             value={{
                 summary,
                 loading,
+                restoring,
                 busy,
                 error,
                 notice,
@@ -308,12 +381,14 @@ export function WorkspaceProvider(props: { children: JSX.Element }): JSX.Element
                 dirty,
                 themeMode,
                 encryptedPath: encryptedPath,
+                recent,
                 createWorkspace,
                 openWorkspace,
                 openWorkspacePath,
                 unlockWorkspace,
                 cancelUnlock,
                 closeWorkspace,
+                forgetRecent,
                 refresh,
                 renameWorkspace,
                 rekeyWorkspace,
