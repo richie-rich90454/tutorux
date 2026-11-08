@@ -83,7 +83,12 @@ export default defineConfig(({ mode }) => ({
         include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
         coverage: {
             provider: "v8",
-            include: ["frontend/app/router.ts", "frontend/shared/format.ts"],
+            include: [
+                "frontend/app/router.ts",
+                "frontend/app/workspace-path.ts",
+                "frontend/shared/attendance.ts",
+                "frontend/shared/format.ts",
+            ],
             exclude: ["frontend/**/*.d.ts"],
             reporter: ["text-summary", "json-summary", "json"],
             reportsDirectory: "coverage",
