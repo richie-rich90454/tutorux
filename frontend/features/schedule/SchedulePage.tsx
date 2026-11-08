@@ -1,12 +1,13 @@
-import { For, Show, createResource, createSignal, type JSX } from "solid-js";
+import { For, Show, createResource, createSignal, onMount, type JSX } from "solid-js";
 import {
+    calendar as calendarApi,
     chooseTextExport,
     errorMessage,
     schedule as scheduleApi,
     students as studentsApi,
     writeExportFile,
 } from "../../api/client";
-import type { ScheduleEvent, ScheduleInput } from "../../api/types";
+import type { ScheduleConflict, ScheduleEvent, ScheduleInput } from "../../api/types";
 import {
     Badge,
     Button,
@@ -29,52 +30,6 @@ function icsDate(value: number): string {
     return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}T${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}00Z`;
 }
 
-function parseIcsDate(value: string): number | null {
-    const match = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?Z?)?$/u.exec(value.trim());
-    if (!match) return null;
-    const [, year, month, day, hour = "0", minute = "0", second = "0"] = match;
-    const date = Date.UTC(
-        Number(year),
-        Number(month) - 1,
-        Number(day),
-        Number(hour),
-        Number(minute),
-        Number(second),
-    );
-    return Number.isNaN(date) ? null : date;
-}
-
-function parseIcs(
-    text: string,
-): Array<{ title: string; startAt: number; durationMin: number; location: string; notes: string }> {
-    const unfolded = text.replace(/\r\n[ \t]/gu, "").replace(/\r\n/gu, "\n");
-    const events: Array<{
-        title: string;
-        startAt: number;
-        durationMin: number;
-        location: string;
-        notes: string;
-    }> = [];
-    for (const block of unfolded.split("BEGIN:VEVENT").slice(1)) {
-        const body = block.split("END:VEVENT")[0] ?? "";
-        const get = (key: string): string => {
-            const match = new RegExp(`^${key}[^:]*:(.*)$`, "mu").exec(body);
-            return match?.[1]?.trim() ?? "";
-        };
-        const start = parseIcsDate(get("DTSTART"));
-        const end = parseIcsDate(get("DTEND"));
-        if (!start) continue;
-        events.push({
-            title: get("SUMMARY") || "Imported lesson",
-            startAt: start,
-            durationMin: end && end > start ? Math.max(5, Math.round((end - start) / 60_000)) : 60,
-            location: get("LOCATION"),
-            notes: get("DESCRIPTION").replace(/\\n/gu, "\n"),
-        });
-    }
-    return events;
-}
-
 function toIcs(events: ScheduleEvent[]): string {
     const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Tutorux//Workspace//EN"];
     for (const event of events) {
@@ -89,9 +44,12 @@ function toIcs(events: ScheduleEvent[]): string {
             `DESCRIPTION:${event.notes.replace(/\n/gu, "\\n")}`,
         );
         if (event.recurrence) {
-            lines.push(
-                `RRULE:FREQ=${event.recurrence === "biweekly" ? "WEEKLY;INTERVAL=2" : event.recurrence.toUpperCase()}`,
-            );
+            const frequency =
+                event.recurrence === "biweekly"
+                    ? `WEEKLY;INTERVAL=2`
+                    : `${event.recurrence.toUpperCase()}${event.recurrenceInterval !== 1 ? `;INTERVAL=${event.recurrenceInterval}` : ""}`;
+            const until = event.recurrenceUntil ? `;UNTIL=${icsDate(event.recurrenceUntil)}` : "";
+            lines.push(`RRULE:FREQ=${frequency}${until}`);
         }
         lines.push("END:VEVENT");
     }
@@ -114,9 +72,23 @@ export function SchedulePage(): JSX.Element {
     const [start, setStart] = createSignal(toDateTimeLocal(Date.now()));
     const [duration, setDuration] = createSignal("60");
     const [recurrence, setRecurrence] = createSignal("");
+    const [repeatEvery, setRepeatEvery] = createSignal("1");
+    const [untilDate, setUntilDate] = createSignal("");
     const [location, setLocation] = createSignal("");
     const [notes, setNotes] = createSignal("");
+    const [conflicts, setConflicts] = createSignal<ScheduleConflict[]>([]);
+    const [pendingSave, setPendingSave] = createSignal<ScheduleInput | null>(null);
     let fileInput: HTMLInputElement | undefined;
+
+    onMount(() => {
+        const params = new URLSearchParams(window.location.hash.split("?")[1] ?? "");
+        if (params.get("next") !== "1") return;
+        setCreating(true);
+        setTitle(params.get("title") ?? "");
+        setSubject(params.get("subject") ?? "");
+        setStudentId(params.get("studentId") ?? "");
+        setStart(toDateTimeLocal(Date.now() + 7 * 86_400_000));
+    });
 
     function resetForm(): void {
         setStudentId("");
@@ -125,8 +97,12 @@ export function SchedulePage(): JSX.Element {
         setStart(toDateTimeLocal(Date.now()));
         setDuration("60");
         setRecurrence("");
+        setRepeatEvery("1");
+        setUntilDate("");
         setLocation("");
         setNotes("");
+        setConflicts([]);
+        setPendingSave(null);
         setEditing(null);
     }
 
@@ -139,30 +115,19 @@ export function SchedulePage(): JSX.Element {
         setStart(toDateTimeLocal(event.startAt));
         setDuration(String(event.durationMin));
         setRecurrence(event.recurrence);
+        setRepeatEvery(String(event.recurrenceInterval));
+        setUntilDate(
+            event.recurrenceUntil ? toDateTimeLocal(event.recurrenceUntil).slice(0, 10) : "",
+        );
         setLocation(event.location);
         setNotes(event.notes);
+        setConflicts([]);
+        setPendingSave(null);
     }
 
-    async function submit(event: SubmitEvent): Promise<void> {
-        event.preventDefault();
-        setError("");
-        const startAt = fromDateTimeLocal(start());
-        if (!startAt) {
-            setError("Choose a valid start time.");
-            return;
-        }
-        const input: ScheduleInput = {
-            studentId: studentId() || null,
-            title: title(),
-            subject: subject(),
-            startAt,
-            durationMin: Number(duration()),
-            recurrence: recurrence(),
-            location: location(),
-            notes: notes(),
-        };
+    async function persist(input: ScheduleInput): Promise<void> {
+        const wasEditing = Boolean(editing());
         try {
-            const wasEditing = Boolean(editing());
             if (editing()) await scheduleApi.update(editing()!.id, input);
             else await scheduleApi.create(input);
             resetForm();
@@ -176,10 +141,46 @@ export function SchedulePage(): JSX.Element {
         }
     }
 
+    async function submit(event: SubmitEvent): Promise<void> {
+        event.preventDefault();
+        setError("");
+        setConflicts([]);
+        setPendingSave(null);
+        const startAt = fromDateTimeLocal(start());
+        if (!startAt) {
+            setError("Choose a valid start time.");
+            return;
+        }
+        const repeatEnd = untilDate() ? fromDateTimeLocal(`${untilDate()}T23:59`) : null;
+        const input: ScheduleInput = {
+            studentId: studentId() || null,
+            title: title(),
+            subject: subject(),
+            startAt,
+            durationMin: Number(duration()),
+            recurrence: recurrence(),
+            recurrenceInterval: Math.max(1, Math.min(52, Number(repeatEvery()) || 1)),
+            recurrenceUntil: recurrence() ? repeatEnd : null,
+            location: location(),
+            notes: notes(),
+        };
+        try {
+            const overlaps = await scheduleApi.conflicts(input, editing()?.id ?? null);
+            if (overlaps.length > 0) {
+                setConflicts(overlaps);
+                setPendingSave(input);
+                return;
+            }
+            await persist(input);
+        } catch (cause) {
+            setError(errorMessage(cause));
+        }
+    }
+
     async function importIcs(file: File): Promise<void> {
         setError("");
         try {
-            const parsed = parseIcs(await file.text());
+            const parsed = await calendarApi.parseIcs(await file.text());
             if (!parsed.length) throw new Error("No events were found in that calendar file.");
             for (const item of parsed) {
                 await scheduleApi.create({
@@ -188,7 +189,9 @@ export function SchedulePage(): JSX.Element {
                     subject: "",
                     startAt: item.startAt,
                     durationMin: item.durationMin,
-                    recurrence: "",
+                    recurrence: item.recurrence,
+                    recurrenceInterval: item.recurrenceInterval,
+                    recurrenceUntil: item.recurrenceUntil,
                     location: item.location,
                     notes: item.notes,
                 });
@@ -245,6 +248,45 @@ export function SchedulePage(): JSX.Element {
             <Show when={message()}>
                 <div class="mb-4">
                     <InlineNotice tone="success">{message()}</InlineNotice>
+                </div>
+            </Show>
+            <Show when={conflicts().length > 0}>
+                <div class="mb-4 grid gap-2 rounded-[5px] border border-[var(--warning)]/35 bg-[var(--warning-soft)] px-3 py-2 text-xs leading-relaxed text-ink-soft">
+                    <strong class="text-ink">This lesson overlaps another scheduled lesson.</strong>
+                    <For each={conflicts().slice(0, 3)}>
+                        {(conflict) => (
+                            <span class="min-w-0 truncate">
+                                {conflict.title}
+                                {conflict.studentName ? ` · ${conflict.studentName}` : ""}
+                                {` · ${formatDate(conflict.startAt)} ${formatTime(conflict.startAt)}`}
+                                {conflict.sameStudent ? " · same student" : ""}
+                            </span>
+                        )}
+                    </For>
+                    <div class="flex flex-wrap gap-2">
+                        <Button
+                            size="sm"
+                            variant="primary"
+                            onClick={() => {
+                                const input = pendingSave();
+                                setConflicts([]);
+                                setPendingSave(null);
+                                if (input) void persist(input);
+                            }}
+                        >
+                            Save anyway
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                                setConflicts([]);
+                                setPendingSave(null);
+                            }}
+                        >
+                            Review time
+                        </Button>
+                    </div>
                 </div>
             </Show>
             <Show when={creating()}>
@@ -314,6 +356,29 @@ export function SchedulePage(): JSX.Element {
                                     />
                                 </Field>
                             </div>
+                            <Show when={recurrence()}>
+                                <div class="grid gap-3 sm:grid-cols-2">
+                                    <Field label="Every">
+                                        <TextInput
+                                            value={repeatEvery()}
+                                            onInput={setRepeatEvery}
+                                            type="number"
+                                            ariaLabel="Repeat interval"
+                                        />
+                                    </Field>
+                                    <Field label="Ends on (optional)">
+                                        <input
+                                            class="h-9 rounded-[5px] border border-line-strong bg-surface px-2 text-[13px] text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/25"
+                                            type="date"
+                                            value={untilDate()}
+                                            onInput={(event) =>
+                                                setUntilDate(event.currentTarget.value)
+                                            }
+                                            aria-label="Repeat end date"
+                                        />
+                                    </Field>
+                                </div>
+                            </Show>
                             <div class="grid gap-3 sm:grid-cols-2">
                                 <Field label="Location">
                                     <TextInput
