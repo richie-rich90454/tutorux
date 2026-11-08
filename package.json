@@ -3,7 +3,29 @@
     "private": true,
     "version": "1.0.0",
     "type": "module",
-    "description": "A local-first tutoring workstation",
+    "description": "A private, local-first tutoring workspace in one portable file",
+    "license": "GPL-3.0-only",
+    "author": "Tutorux contributors",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/richie-rich90454/tutorux.git"
+    },
+    "homepage": "https://github.com/richie-rich90454/tutorux#readme",
+    "bugs": {
+        "url": "https://github.com/richie-rich90454/tutorux/issues"
+    },
+    "keywords": [
+        "tutoring",
+        "tutor",
+        "local-first",
+        "tauri",
+        "rust",
+        "solidjs",
+        "sqlite",
+        "education",
+        "desktop-app",
+        "privacy"
+    ],
     "engines": {
         "node": ">=22.13.0"
     },
