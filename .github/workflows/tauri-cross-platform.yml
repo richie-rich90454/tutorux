@@ -6,6 +6,11 @@ on:
         tags: ["v*"]
     pull_request:
     workflow_dispatch:
+        inputs:
+            release_tag:
+                description: Existing v* tag to attach the built assets to
+                required: false
+                type: string
 
 permissions:
     contents: read
@@ -30,22 +35,6 @@ jobs:
             - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
               with:
                   persist-credentials: false
-
-            - name: Require signing credentials for tagged releases
-              if: startsWith(github.ref, 'refs/tags/v')
-              shell: bash
-              env:
-                  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-                  WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-              run: |
-                  if [ "$RUNNER_OS" = "macOS" ] && [ -z "${APPLE_CERTIFICATE:-}" ]; then
-                    echo "::error::A macOS release tag requires APPLE_CERTIFICATE and notarization secrets."
-                    exit 1
-                  fi
-                  if [ "$RUNNER_OS" = "Windows" ] && [ -z "${WINDOWS_CERTIFICATE:-}" ]; then
-                    echo "::error::A Windows release tag requires WINDOWS_CERTIFICATE and its password."
-                    exit 1
-                  fi
 
             - name: Install Linux desktop libraries
               if: runner.os == 'Linux'
@@ -137,8 +126,9 @@ jobs:
                   "WINDOWS_CERTIFICATE_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append
                   Remove-Item $pfxPath -Force
 
-            # Tagged releases require the signing secrets; branch and PR builds may
-            # produce unsigned smoke-test packages.
+            # Signing is optional. When the secrets are absent the release is
+            # still built and published, unsigned, so the pipeline never fails
+            # on missing certificates.
             - name: Build native desktop package
               env:
                   APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -177,22 +167,56 @@ jobs:
               shell: pwsh
               run: |
                   Get-ChildItem release -File |
-                    Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+                    Where-Object { $_.Name -notlike 'SHA256SUMS*' } |
                     ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } |
-                    Set-Content release/SHA256SUMS.txt -Encoding ascii
+                    Set-Content "release/SHA256SUMS-${{ runner.os }}.txt" -Encoding ascii
 
             - name: Write SHA-256 checksums
               if: runner.os != 'Windows'
               shell: bash
               run: |
                   cd release
-                  find . -maxdepth 1 -type f ! -name 'SHA256SUMS.txt' -exec sh -c '
+                  find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -exec sh -c '
                     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi
-                  ' _ {} \; | sed 's|  \./|  |' | sort -k2 > SHA256SUMS.txt
+                  ' _ {} \; | sed 's|  \./|  |' | sort -k2 > "SHA256SUMS-${{ runner.os }}.txt"
 
             - name: Upload desktop bundles
               uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
               with:
-                  name: tutorux-${{ matrix.os }}
+                  name: tutorux-${{ runner.os }}
                   path: release/**
                   if-no-files-found: error
+
+    release:
+        name: Attach assets to the release
+        needs: verify
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+              with:
+                  pattern: tutorux-*
+                  path: artifacts
+                  merge-multiple: true
+
+            - name: Combine checksums
+              run: |
+                  cat artifacts/SHA256SUMS-*.txt | sort -k2 > artifacts/SHA256SUMS.txt
+                  rm artifacts/SHA256SUMS-*.txt
+                  cat artifacts/SHA256SUMS.txt
+
+            - name: Publish release assets
+              shell: bash
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  GH_REPO: ${{ github.repository }}
+                  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+              run: |
+                  if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+                    gh release create "$RELEASE_TAG" \
+                      --title "Tutorux ${RELEASE_TAG#v}" \
+                      --generate-notes
+                  fi
+                  gh release upload "$RELEASE_TAG" artifacts/* --clobber
