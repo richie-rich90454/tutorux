@@ -5,6 +5,7 @@ Tutorux uses SolidJS, TypeScript, Vite, and Tauri. The frontend is a desktop Web
 ## Commands
 
 ```sh
+pnpm run pdfium:fetch
 pnpm run typecheck
 pnpm run lint
 pnpm run format:check
@@ -17,7 +18,7 @@ pnpm exec tauri build --no-bundle
 
 ## Project layout
 
-```text
+````text
 frontend/
   api/                 typed Tauri client, AI transport, Whisper bridge, calendar/OCR calls
   app/                 shell, routing, workspace provider, welcome, reminder watcher
@@ -28,9 +29,7 @@ frontend/
   shared-ui.tsx        icon set
   theme.tsx            document theme tokens
   styles.css           Tailwind setup, font faces, motion rules
-```
-
-Do not add page logic to `app/`. A feature may depend on `api`, `design-system`, `shared`, and `app/router`; features must not import another feature's internals.
+```Do not add page logic to `app/`. A feature may depend on `api`, `design-system`, `shared`, and `app/router`; features must not import another feature's internals.
 
 ## Routing
 
@@ -50,7 +49,7 @@ Do not add page logic to `app/`. A feature may depend on `api`, `design-system`,
 #/assistant
 #/archive
 #/settings
-```
+````
 
 Use `navigate`, `sessionPath`, `studentPath`, and `guidePath` instead of assigning `window.location.hash` directly.
 
