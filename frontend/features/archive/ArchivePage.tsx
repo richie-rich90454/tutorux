@@ -2,8 +2,10 @@ import { For, Show, createResource, createSignal, type JSX } from "solid-js";
 import {
     backup as backupApi,
     chooseBackupFile,
+    chooseWorkspaceFile,
     chooseWorkingCopy,
     errorMessage,
+    settings as settingsApi,
     trash as trashApi,
     workspace as workspaceApi,
 } from "../../api/client";
@@ -31,6 +33,7 @@ export function ArchivePage(): JSX.Element {
     const [backingUp, setBackingUp] = createSignal(false);
     const [maintaining, setMaintaining] = createSignal("");
     const [summary, { refetch: refetchSummary }] = createResource(() => workspaceApi.summary());
+    const [settings, { refetch: refetchSettings }] = createResource(() => settingsApi.all());
     const [trash, { refetch: refetchTrash }] = createResource(() => trashApi.list());
 
     async function check(): Promise<void> {
@@ -58,6 +61,7 @@ export function ArchivePage(): JSX.Element {
             if (!path) return;
             const result = await backupApi.create(path);
             setMessage(`Backup created: ${result.path} (${formatBytes(result.bytes)}).`);
+            await refetchSettings();
         } catch (cause) {
             setError(errorMessage(cause));
         } finally {
@@ -132,6 +136,33 @@ export function ArchivePage(): JSX.Element {
         }
     }
 
+    async function salvage(): Promise<void> {
+        setError("");
+        setMaintaining("salvage");
+        try {
+            const source = await chooseWorkspaceFile();
+            if (!source) return;
+            const destination = await chooseWorkingCopy(
+                summary()?.name ?? "workspace",
+                "Save recovered workspace",
+                "recovered",
+            );
+            if (!destination) return;
+            const result = await workspaceApi.salvage(source, destination);
+            const warning = result.warnings.length
+                ? ` Skipped ${result.warnings.length} unreadable table(s).`
+                : "";
+            setMessage(
+                `Recovered ${result.copiedRows} rows into ${result.path}. ` +
+                    `${result.skippedRows} rows skipped. Integrity: ${result.integrity}.${warning}`,
+            );
+        } catch (cause) {
+            setError(errorMessage(cause));
+        } finally {
+            setMaintaining("");
+        }
+    }
+
     async function restore(item: TrashItem): Promise<void> {
         setError("");
         try {
@@ -163,6 +194,12 @@ export function ArchivePage(): JSX.Element {
             setError(errorMessage(cause));
         }
     }
+
+    const lastBackup = (): number | null => {
+        const value = settings()?.["backup_last_at"];
+        const parsed = value ? Number(value) : Number.NaN;
+        return Number.isFinite(parsed) ? parsed : null;
+    };
 
     return (
         <div class="mx-auto w-full max-w-[1240px] px-5 py-5 sm:px-7 lg:px-9">
@@ -198,6 +235,12 @@ export function ArchivePage(): JSX.Element {
                                 <span>Size</span>
                                 <strong class="text-ink">
                                     {formatBytes(summary()?.sizeBytes ?? 0)}
+                                </strong>
+                            </div>
+                            <div class="flex justify-between gap-3">
+                                <span>Last backup</span>
+                                <strong class="text-ink">
+                                    {lastBackup() ? formatDate(lastBackup()) : "Never"}
                                 </strong>
                             </div>
                             <div class="flex justify-between gap-3">
@@ -348,6 +391,12 @@ export function ArchivePage(): JSX.Element {
                                         ? "Sanitizing…"
                                         : "Create sanitized copy"}
                                 </Button>
+                                <ConfirmButton
+                                    label="Repair a damaged workspace"
+                                    confirmLabel="Start recovery"
+                                    disabled={Boolean(maintaining())}
+                                    onConfirm={() => void salvage()}
+                                />
                                 <Button size="sm" onClick={() => void window.print()}>
                                     Print workspace summary
                                 </Button>
