@@ -8,6 +8,7 @@ pub mod packages;
 pub mod recordings;
 pub mod reminders;
 pub mod repo;
+pub mod salvage;
 pub mod schedule;
 pub mod schema;
 pub mod search;
@@ -25,7 +26,7 @@ use std::{
 };
 
 use rusqlite::Connection;
-use tauri::{State, WebviewWindow};
+use tauri::{Manager, State, WebviewWindow};
 use zeroize::Zeroizing;
 
 use crate::calendar;
@@ -179,6 +180,7 @@ pub fn workspace_open(
     verify_readable(&conn)?;
     repo::apply_connection_pragmas(&conn)?;
     repo::verify_workspace_identity(&conn)?;
+    schema::migrate_workspace(&conn)?;
     let summary = repo::workspace_summary(&conn, &path)?;
     if let Some(previous) = guard.take() {
         let _ = previous
@@ -419,6 +421,19 @@ pub fn schedule_list(
     with_db(&state, |db| {
         schedule::materialize_sessions(&mut db.conn)?;
         schedule::list_schedule(&db.conn, from, to, 1000)
+    })
+}
+
+#[tauri::command]
+pub fn schedule_conflicts(
+    window: WebviewWindow,
+    state: State<'_, WorkspaceState>,
+    input: ScheduleInput,
+    ignore_id: Option<String>,
+) -> Result<Vec<ScheduleConflict>, String> {
+    main_window(&window)?;
+    with_conn(&state, |conn| {
+        schedule::find_conflicts(conn, &input, ignore_id.as_deref())
     })
 }
 
@@ -676,14 +691,44 @@ pub fn material_ocr(
     main_window(&window)?;
     with_db(&state, |db| {
         let material = materials::get_material(&db.conn, &id)?;
-        if !material.mime_type.starts_with("image/") {
+        let pdf = material.mime_type == "application/pdf";
+        if !pdf && !material.mime_type.starts_with("image/") {
             return Err(
-                "OCR supports image materials such as PNG, JPEG, WebP, BMP, TIFF, and GIF. Convert PDF pages to images first."
+                "Text extraction supports image materials and PDFs. Convert other file types first."
                     .to_owned(),
             );
         }
-        let bytes = materials::read_material(&db.conn, &id, 64 * 1024 * 1024)?;
-        let text = crate::ocr::recognize_image(&bytes)?;
+        let limit = if pdf {
+            256 * 1024 * 1024
+        } else {
+            64 * 1024 * 1024
+        };
+        let bytes = materials::read_material(&db.conn, &id, limit)?;
+        let text = if pdf {
+            let mut candidates = Vec::new();
+            if let Ok(resource) = window.app_handle().path().resource_dir() {
+                candidates.push(resource.clone());
+                candidates.push(resource.join("pdfium"));
+                candidates.push(resource.join("resources").join("pdfium"));
+            }
+            if let Ok(executable) = std::env::current_exe() {
+                if let Some(directory) = executable.parent() {
+                    candidates.push(directory.join("resources").join("pdfium"));
+                    candidates.push(directory.to_path_buf());
+                }
+            }
+            candidates.push(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("resources")
+                    .join("pdfium"),
+            );
+            let directory = candidates
+                .into_iter()
+                .find(|directory| crate::ocr::pdfium_library(directory).exists());
+            crate::ocr::recognize_pdf(&bytes, directory.as_deref())?
+        } else {
+            crate::ocr::recognize_image(&bytes)?
+        };
         materials::material_text_for_search(&mut db.conn, &id, &text)?;
         materials::get_material(&db.conn, &id)
     })
@@ -1093,7 +1138,10 @@ pub fn backup_create(
 ) -> Result<BackupResult, String> {
     main_window(&window)?;
     with_db(&state, |db| {
-        backup::backup_workspace(&db.conn, &path, db.key.as_deref().map(String::as_str))
+        let result =
+            backup::backup_workspace(&db.conn, &path, db.key.as_deref().map(String::as_str))?;
+        settings::set_setting(&db.conn, "backup_last_at", &now_ms().to_string())?;
+        Ok(result)
     })
 }
 
@@ -1104,6 +1152,16 @@ pub fn workspace_check(
 ) -> Result<String, String> {
     main_window(&window)?;
     with_conn(&state, backup::integrity_check)
+}
+
+#[tauri::command]
+pub fn workspace_salvage(
+    window: WebviewWindow,
+    source: String,
+    destination: String,
+) -> Result<SalvageReport, String> {
+    main_window(&window)?;
+    salvage::salvage_workspace(Path::new(&source), &destination)
 }
 
 #[tauri::command]
@@ -1179,6 +1237,11 @@ pub fn reminders_due(
 ) -> Result<Vec<Reminder>, String> {
     main_window(&window)?;
     with_conn(&state, |conn| reminders::due_reminders(conn, lead_minutes))
+}
+
+#[tauri::command]
+pub fn calendar_parse_ics(text: String) -> Result<Vec<crate::calendar::CalendarEvent>, String> {
+    calendar::calendar_parse_ics(text)
 }
 
 #[tauri::command]
