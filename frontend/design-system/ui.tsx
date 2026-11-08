@@ -177,7 +177,7 @@ export function PageHeader(props: {
                         {props.eyebrow}
                     </span>
                 </Show>
-                <h1 class="mt-1.5 text-[27px] font-semibold leading-[1.12] tracking-[-0.025em] text-ink">
+                <h1 class="mt-1.5 text-[30px] font-semibold leading-[1.1] tracking-[-0.03em] text-ink">
                     {props.title}
                 </h1>
                 <Show when={props.description}>
