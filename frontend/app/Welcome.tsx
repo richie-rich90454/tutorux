@@ -1,7 +1,8 @@
-import { Show, createSignal, type JSX } from "solid-js";
+import { For, Show, createSignal, type JSX } from "solid-js";
 import { Button, Field, InlineNotice, TextArea, TextInput } from "../design-system/ui";
 import { Icon } from "../shared-ui";
 import { useWorkspace } from "./workspace";
+import { workspaceFileName } from "./workspace-path";
 
 export function Welcome(): JSX.Element {
     const workspace = useWorkspace();
@@ -163,6 +164,44 @@ export function Welcome(): JSX.Element {
                                 Open workspace
                             </Button>
                         </div>
+                        <Show when={workspace.recent().length > 0}>
+                            <div class="rounded-[6px] border border-line bg-surface p-4">
+                                <h3 class="text-sm font-semibold text-ink">Recent workspaces</h3>
+                                <div class="mt-2 grid gap-1">
+                                    <For each={workspace.recent()}>
+                                        {(item) => (
+                                            <div class="flex min-w-0 items-center gap-2 rounded-[4px] px-1 py-1 hover:bg-surface-inset">
+                                                <button
+                                                    type="button"
+                                                    class="grid min-w-0 flex-1 gap-0.5 text-left"
+                                                    onClick={() =>
+                                                        void workspace.openWorkspacePath(item.path)
+                                                    }
+                                                    title={item.path}
+                                                >
+                                                    <strong class="truncate text-xs font-medium text-ink">
+                                                        {item.name}
+                                                    </strong>
+                                                    <span class="truncate text-[10px] text-muted">
+                                                        {workspaceFileName(item.path)}
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    class="text-[10px] text-faint hover:text-ink"
+                                                    aria-label={`Forget ${item.name}`}
+                                                    onClick={() =>
+                                                        workspace.forgetRecent(item.path)
+                                                    }
+                                                >
+                                                    Forget
+                                                </button>
+                                            </div>
+                                        )}
+                                    </For>
+                                </div>
+                            </div>
+                        </Show>
                         <Show when={workspace.encryptedPath()}>
                             <div class="rounded-[6px] border border-line bg-surface p-4">
                                 <h3 class="text-sm font-semibold text-ink">Encrypted workspace</h3>
