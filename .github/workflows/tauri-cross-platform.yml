@@ -75,6 +75,9 @@ jobs:
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
 
+            - name: Fetch the PDFium runtime
+              run: pnpm run pdfium:fetch
+
             - name: Audit dependencies
               run: pnpm audit --audit-level high
 
