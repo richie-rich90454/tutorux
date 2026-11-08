@@ -2,6 +2,7 @@ import { For, Show, createSignal, type JSX } from "solid-js";
 import { Icon, type IconName } from "../../shared-ui";
 import { cn } from "../../design-system/ui";
 import { useWorkspace } from "../workspace";
+import { workspaceFileName } from "../workspace-path";
 import { useRoute } from "../router";
 
 interface NavItem {
@@ -58,6 +59,7 @@ export function Sidebar(props: {
     const workspace = useWorkspace();
     const route = useRoute();
     const [showWorkspaceActions, setShowWorkspaceActions] = createSignal(false);
+    const [confirmClose, setConfirmClose] = createSignal(false);
     const activeRoot = (): string => {
         const current = route();
         if (current.name === "student") return "student";
@@ -74,12 +76,13 @@ export function Sidebar(props: {
             )}
             aria-label="Workspace navigation"
         >
-            <div class="mb-3 border-b border-line-soft pb-3">
+            <div class="relative mb-3 border-b border-line-soft pb-3">
                 <button
                     type="button"
                     class="flex w-full min-w-0 items-center gap-2 rounded-[5px] px-1 py-1 text-left hover:bg-surface-inset focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     onClick={() => setShowWorkspaceActions((value) => !value)}
                     title="Workspace actions"
+                    aria-expanded={showWorkspaceActions()}
                 >
                     <span class="grid h-8 w-8 flex-none place-items-center rounded-[5px] border border-line bg-surface text-accent">
                         <Icon name="archive" />
@@ -88,14 +91,68 @@ export function Sidebar(props: {
                         <strong class="truncate text-[13px] font-semibold text-ink">
                             {workspace.summary()?.name ?? "Tutorux"}
                         </strong>
-                        <Show when={workspace.dirty()}>
+                        <Show
+                            when={workspace.dirty()}
+                            fallback={
+                                <span class="truncate text-[11px] text-muted">
+                                    {workspace.summary()?.path
+                                        ? workspaceFileName(workspace.summary()!.path)
+                                        : "Local workspace"}
+                                </span>
+                            }
+                        >
                             <span class="text-[11px] text-warning">Unsaved changes</span>
                         </Show>
                     </span>
                     <Icon name="chevron" class="h-3.5 w-3.5 rotate-90 text-faint" />
                 </button>
                 <Show when={showWorkspaceActions()}>
-                    <div class="mt-1 grid gap-1 rounded-[5px] border border-line bg-surface p-1.5">
+                    <div
+                        class="fixed inset-0 z-10"
+                        aria-hidden="true"
+                        onClick={() => {
+                            setShowWorkspaceActions(false);
+                            setConfirmClose(false);
+                        }}
+                    />
+                    <div class="absolute left-0 right-0 top-full z-20 mt-1 grid gap-1 rounded-[5px] border border-line bg-surface p-1.5 shadow-none">
+                        <Show when={workspace.recent().length > 0}>
+                            <div class="px-2 pb-0.5 pt-1 text-[10px] font-medium text-faint">
+                                Recent
+                            </div>
+                            <For each={workspace.recent()}>
+                                {(item) => (
+                                    <button
+                                        type="button"
+                                        class="grid min-w-0 gap-0.5 rounded-[4px] px-2 py-1.5 text-left hover:bg-surface-inset"
+                                        onClick={() => {
+                                            setShowWorkspaceActions(false);
+                                            setConfirmClose(false);
+                                            void workspace.openWorkspacePath(item.path);
+                                        }}
+                                        title={item.path}
+                                    >
+                                        <strong class="truncate text-xs font-medium text-ink">
+                                            {item.name}
+                                        </strong>
+                                        <span class="truncate text-[10px] text-muted">
+                                            {workspaceFileName(item.path)}
+                                        </span>
+                                    </button>
+                                )}
+                            </For>
+                            <div class="my-0.5 border-t border-line-soft" />
+                        </Show>
+                        <button
+                            type="button"
+                            class="rounded-[4px] px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-surface-inset hover:text-ink"
+                            onClick={() => {
+                                setShowWorkspaceActions(false);
+                                void workspace.closeWorkspace();
+                            }}
+                        >
+                            New workspace
+                        </button>
                         <button
                             type="button"
                             class="rounded-[4px] px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-surface-inset hover:text-ink"
@@ -104,7 +161,7 @@ export function Sidebar(props: {
                                 void workspace.openWorkspace();
                             }}
                         >
-                            Open another workspace
+                            Open workspace
                         </button>
                         <button
                             type="button"
@@ -126,6 +183,26 @@ export function Sidebar(props: {
                         >
                             Settings
                         </button>
+                        <button
+                            type="button"
+                            class={
+                                confirmClose()
+                                    ? "rounded-[4px] bg-[var(--danger-soft)] px-2 py-1.5 text-left text-xs text-danger hover:bg-[var(--danger-soft)]"
+                                    : "rounded-[4px] px-2 py-1.5 text-left text-xs text-ink-soft hover:bg-surface-inset hover:text-ink"
+                            }
+                            onClick={() => {
+                                if (!confirmClose()) {
+                                    setConfirmClose(true);
+                                    window.setTimeout(() => setConfirmClose(false), 3500);
+                                    return;
+                                }
+                                setConfirmClose(false);
+                                setShowWorkspaceActions(false);
+                                void workspace.closeWorkspace();
+                            }}
+                        >
+                            {confirmClose() ? "Confirm close workspace" : "Close workspace"}
+                        </button>
                     </div>
                 </Show>
             </div>
@@ -139,7 +216,7 @@ export function Sidebar(props: {
                 <Icon name="search" />
                 <span class="flex-1">Search workspace</span>
                 <kbd class="rounded-[4px] border border-line-soft bg-surface-subtle px-1.5 py-0.5 text-[10px] text-muted">
-                    Ctrl K
+                    {navigator.userAgent.includes("Mac") ? "⌘ K" : "Ctrl K"}
                 </kbd>
             </button>
 
@@ -180,19 +257,6 @@ export function Sidebar(props: {
                     )}
                 </For>
             </nav>
-
-            <div class="mt-2 grid gap-1 border-t border-line-soft pt-2">
-                <button
-                    type="button"
-                    class="flex min-h-8 items-center justify-between rounded-[5px] px-2.5 text-left text-xs text-muted hover:bg-surface-inset hover:text-ink"
-                    onClick={() => workspace.setSimpleMode(!workspace.simpleMode())}
-                >
-                    <span>{workspace.simpleMode() ? "Simple mode" : "Advanced mode"}</span>
-                    <span class="text-[10px] text-faint">
-                        {workspace.simpleMode() ? "Show advanced" : "Hide advanced"}
-                    </span>
-                </button>
-            </div>
         </aside>
     );
 
