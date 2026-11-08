@@ -5,7 +5,7 @@ use std::{
 };
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD as BASE64, Engine as _};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, TimeZone, Utc};
 use keyring::{Entry, Error as KeyringError};
 use reqwest::{redirect::Policy, Client, Url};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -516,13 +516,16 @@ pub fn account_credentials(
     .ok_or_else(|| "The calendar account could not be found.".to_owned())
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CalendarEvent {
     pub external_id: String,
     pub title: String,
     pub start_at: i64,
     pub duration_min: i64,
     pub recurrence: String,
+    pub recurrence_interval: i64,
+    pub recurrence_until: Option<i64>,
     pub location: String,
     pub notes: String,
     pub cancelled: bool,
@@ -671,6 +674,8 @@ pub async fn fetch_events(
                 start_at,
                 duration_min,
                 recurrence: String::new(),
+                recurrence_interval: 1,
+                recurrence_until: None,
                 location: item["location"]["displayName"]
                     .as_str()
                     .or_else(|| item["location"].as_str())
@@ -805,7 +810,7 @@ fn parse_ics_date(value: &str, timezone: Option<&str>) -> Option<i64> {
     None
 }
 
-fn map_recurrence(rule: &str) -> String {
+fn map_recurrence(rule: &str, start_at: i64) -> (String, i64, Option<i64>) {
     let frequency = rule
         .split(';')
         .find_map(|part| part.strip_prefix("FREQ="))
@@ -814,13 +819,49 @@ fn map_recurrence(rule: &str) -> String {
         .split(';')
         .find_map(|part| part.strip_prefix("INTERVAL="))
         .and_then(|value| value.parse::<i64>().ok())
-        .unwrap_or(1);
+        .unwrap_or(1)
+        .clamp(1, 52);
+    let until = rule
+        .split(';')
+        .find_map(|part| part.strip_prefix("UNTIL="))
+        .and_then(|value| parse_ics_date(value, None));
+    let count = rule
+        .split(';')
+        .find_map(|part| part.strip_prefix("COUNT="))
+        .and_then(|value| value.parse::<i64>().ok())
+        .filter(|value| *value > 0);
+    let until =
+        until.or_else(|| count.and_then(|count| count_until(start_at, frequency, interval, count)));
     match (frequency, interval) {
-        ("DAILY", _) => "daily".to_owned(),
-        ("WEEKLY", 2) => "biweekly".to_owned(),
-        ("WEEKLY", _) => "weekly".to_owned(),
-        _ => String::new(),
+        ("DAILY", value) => ("daily".to_owned(), value, until),
+        ("WEEKLY", 2) => ("biweekly".to_owned(), 1, until),
+        ("WEEKLY", value) => ("weekly".to_owned(), value, until),
+        ("MONTHLY", value) => ("monthly".to_owned(), value, until),
+        _ => (String::new(), 1, None),
     }
+}
+
+fn count_until(start_at: i64, frequency: &str, interval: i64, count: i64) -> Option<i64> {
+    if count <= 1 {
+        return Some(start_at);
+    }
+    let start = Utc.timestamp_millis_opt(start_at).single()?;
+    let steps = (count - 1) * interval;
+    let end = match frequency {
+        "DAILY" => start + chrono::Duration::days(steps),
+        "WEEKLY" => start + chrono::Duration::weeks(steps),
+        "MONTHLY" => {
+            let total_month = start.month0() as i32 + steps as i32;
+            let year = start.year() + total_month / 12;
+            let month = (total_month % 12) as u32 + 1;
+            let day = start.day();
+            let date = chrono::NaiveDate::from_ymd_opt(year, month, day)
+                .or_else(|| chrono::NaiveDate::from_ymd_opt(year, month, 28))?;
+            Utc.from_utc_datetime(&date.and_time(start.time()))
+        }
+        _ => return None,
+    };
+    Some(end.timestamp_millis())
 }
 
 fn parse_ics_events(ics: &str) -> Vec<CalendarEvent> {
@@ -860,10 +901,10 @@ fn parse_ics_events(ics: &str) -> Vec<CalendarEvent> {
         let duration_min = end_at
             .map(|end| ((end - start_at) / 60_000).clamp(5, 24 * 60))
             .unwrap_or(60);
-        let recurrence = values
+        let (recurrence, recurrence_interval, recurrence_until) = values
             .get("RRULE")
-            .map(|value| map_recurrence(value.as_str()))
-            .unwrap_or_default();
+            .map(|value| map_recurrence(value.as_str(), start_at))
+            .unwrap_or_else(|| (String::new(), 1, None));
         let title = values
             .get("SUMMARY")
             .cloned()
@@ -878,6 +919,8 @@ fn parse_ics_events(ics: &str) -> Vec<CalendarEvent> {
             start_at,
             duration_min,
             recurrence,
+            recurrence_interval,
+            recurrence_until,
             location: values.get("LOCATION").cloned().unwrap_or_default(),
             notes: values
                 .get("DESCRIPTION")
@@ -890,6 +933,13 @@ fn parse_ics_events(ics: &str) -> Vec<CalendarEvent> {
         });
     }
     events
+}
+
+pub fn calendar_parse_ics(text: String) -> Result<Vec<CalendarEvent>, String> {
+    if text.trim().is_empty() {
+        return Err("The calendar file is empty.".to_owned());
+    }
+    Ok(parse_ics_events(&text))
 }
 
 pub async fn fetch_caldav_events(
@@ -993,14 +1043,17 @@ pub fn apply_events(
             transaction
                 .execute(
                     "UPDATE schedule_events SET title = ?2, start_at = ?3, duration_min = ?4,
-                     recurrence = ?5, location = ?6, notes = ?7, external_etag = ?8,
-                     deleted_at = NULL, updated_at = ?9 WHERE id = ?1",
+                     recurrence = ?5, recurrence_interval = ?6, recurrence_until = ?7,
+                     location = ?8, notes = ?9, external_etag = ?10,
+                     deleted_at = NULL, updated_at = ?11 WHERE id = ?1",
                     params![
                         id,
                         event.title,
                         event.start_at,
                         event.duration_min,
                         event.recurrence,
+                        event.recurrence_interval,
+                        event.recurrence_until,
                         event.location,
                         event.notes,
                         event.etag,
@@ -1014,16 +1067,19 @@ pub fn apply_events(
             transaction
                 .execute(
                     "INSERT INTO schedule_events (id, student_id, title, subject, start_at,
-                     duration_min, recurrence, location, notes, calendar_provider,
-                     calendar_account_id, external_id, external_etag, deleted_at, created_at,
-                     updated_at)
-                     VALUES (?1, NULL, ?2, '', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, ?12, ?12)",
+                     duration_min, recurrence, recurrence_interval, recurrence_until, location,
+                     notes, calendar_provider, calendar_account_id, external_id, external_etag,
+                     deleted_at, created_at, updated_at)
+                     VALUES (?1, NULL, ?2, '', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                     NULL, ?14, ?14)",
                     params![
                         id,
                         event.title,
                         event.start_at,
                         event.duration_min,
                         event.recurrence,
+                        event.recurrence_interval,
+                        event.recurrence_until,
                         event.location,
                         event.notes,
                         provider,
@@ -1111,6 +1167,38 @@ mod tests {
     }
 
     #[test]
+    fn accepts_the_local_oauth_callback() {
+        use std::io::Write;
+        use std::net::TcpStream;
+
+        let session = begin_oauth("google", "client-id.apps.googleusercontent.com").unwrap();
+        let url = super::Url::parse(&session.url).unwrap();
+        let state = url
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .map(|(_, value)| value.into_owned())
+            .unwrap();
+        let redirect = session.redirect_uri().to_owned();
+        let address = redirect
+            .strip_prefix("http://")
+            .unwrap()
+            .split('/')
+            .next()
+            .unwrap()
+            .to_owned();
+        let sender = std::thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            write!(
+                stream,
+                "GET /callback?code=test-code&state={state} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        assert_eq!(session.wait().unwrap(), "test-code");
+        sender.join().unwrap();
+    }
+
+    #[test]
     fn parses_calendar_timestamps() {
         assert_eq!(
             parse_rfc3339("2026-11-05T10:00:00Z"),
@@ -1149,7 +1237,19 @@ mod tests {
         assert_eq!(events[0].title, "Algebra");
         assert_eq!(events[0].duration_min, 60);
         assert_eq!(events[0].recurrence, "biweekly");
-        assert_eq!(map_recurrence("FREQ=DAILY"), "daily");
+        assert_eq!(map_recurrence("FREQ=DAILY", 0).0, "daily");
+        assert_eq!(
+            map_recurrence(
+                "FREQ=MONTHLY;INTERVAL=2;UNTIL=20270605T100000Z",
+                1_793_892_000_000
+            )
+            .0,
+            "monthly"
+        );
+        assert_eq!(
+            map_recurrence("FREQ=WEEKLY;COUNT=3", 1_793_892_000_000).2,
+            Some(1_793_892_000_000 + 2 * 7 * 86_400_000)
+        );
     }
 
     #[test]
