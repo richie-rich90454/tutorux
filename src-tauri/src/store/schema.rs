@@ -1,5 +1,5 @@
 pub const WORKSPACE_APPLICATION_ID: i64 = 0x5455_5452;
-pub const WORKSPACE_SCHEMA_VERSION: i64 = 1;
+pub const WORKSPACE_SCHEMA_VERSION: i64 = 2;
 
 pub const SCHEMA_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS schedule_events (
     start_at INTEGER NOT NULL,
     duration_min INTEGER NOT NULL DEFAULT 60,
     recurrence TEXT NOT NULL DEFAULT '',
+    recurrence_interval INTEGER NOT NULL DEFAULT 1,
+    recurrence_until INTEGER,
     location TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
     calendar_provider TEXT NOT NULL DEFAULT 'internal',
@@ -289,3 +291,23 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_fts USING fts5(
     tokenize = 'unicode61 remove_diacritics 2'
 );
 "#;
+
+pub fn migrate_workspace(conn: &rusqlite::Connection) -> Result<(), String> {
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(|error| format!("Could not read the workspace version: {error}"))?;
+    if version >= WORKSPACE_SCHEMA_VERSION {
+        return Ok(());
+    }
+    if version < 2 {
+        conn.execute_batch(&format!(
+            "BEGIN IMMEDIATE;
+             ALTER TABLE schedule_events ADD COLUMN recurrence_interval INTEGER NOT NULL DEFAULT 1;
+             ALTER TABLE schedule_events ADD COLUMN recurrence_until INTEGER;
+             PRAGMA user_version = {WORKSPACE_SCHEMA_VERSION};
+             COMMIT;"
+        ))
+        .map_err(|error| format!("Could not upgrade the workspace schema: {error}"))?;
+    }
+    Ok(())
+}
