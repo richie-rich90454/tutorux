@@ -88,13 +88,15 @@ See [the workspace format](docs/archive-format/TUTOR-FORMAT.md) for the full sch
 
 ### Download
 
-Grab the latest build from [Releases](https://github.com/richie-rich90454/tutorux/releases/latest).
+Grab the latest build from [Releases](https://github.com/richie-rich90454/tutorux/releases/latest). Every tag is built and published by CI for all three platforms.
 
-| Artifact                         | Use                                                         |
-| -------------------------------- | ----------------------------------------------------------- |
-| `Tutorux_1.0.0_x64_en-US.msi`    | Windows installer                                           |
-| `Tutorux_1.0.0_x64-setup.exe`    | Windows NSIS installer                                      |
-| `Tutorux_1.0.0_x64_portable.exe` | Single-file portable Windows build; no separate runtime DLL |
+| Platform | Artifacts                                                        |
+| -------- | ---------------------------------------------------------------- |
+| Windows  | `.msi` installer, NSIS `-setup.exe`, single-file portable `.exe` |
+| macOS    | `.dmg` disk image, `.app.tar.gz` bundle                          |
+| Linux    | `.AppImage`, `.deb`, `.rpm`                                      |
+
+The portable Windows executable embeds the PDFium runtime; no separate DLL is required. Release assets include a `SHA256SUMS.txt` file.
 
 ### Build from source
 
