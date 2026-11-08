@@ -4,6 +4,7 @@ import type {
     BackupResult,
     CalendarAccount,
     CalendarClientStatus,
+    CalendarEvent,
     CalendarSyncResult,
     Evidence,
     EvidenceGraph,
@@ -25,7 +26,9 @@ import type {
     PackageResult,
     Recording,
     Reminder,
+    SalvageReport,
     ScheduleEvent,
+    ScheduleConflict,
     ScheduleInput,
     SearchHit,
     Session,
@@ -177,6 +180,8 @@ export const workspace = {
     reindex: () => invoke<MaintenanceResult>("workspace_reindex"),
     recoveryCopy: (path: string) => invoke<BackupResult>("workspace_recovery_copy", { path }),
     sanitizedCopy: (path: string) => invoke<BackupResult>("workspace_sanitized_copy", { path }),
+    salvage: (source: string, destination: string) =>
+        invoke<SalvageReport>("workspace_salvage", { source, destination }),
 };
 
 export const today = {
@@ -210,6 +215,8 @@ export const schedule = {
     list: (from: number | null = null, to: number | null = null) =>
         invoke<ScheduleEvent[]>("schedule_list", { from, to }),
     create: (input: ScheduleInput) => invoke<ScheduleEvent>("schedule_create", { input }),
+    conflicts: (input: ScheduleInput, ignoreId: string | null = null) =>
+        invoke<ScheduleConflict[]>("schedule_conflicts", { input, ignoreId }),
     update: (id: string, input: ScheduleInput) =>
         invoke<ScheduleEvent>("schedule_update", { id, input }),
     remove: (id: string) => invoke<void>("schedule_delete", { id }),
@@ -350,6 +357,7 @@ export const reminders = {
 };
 
 export const calendar = {
+    parseIcs: (text: string) => invoke<CalendarEvent[]>("calendar_parse_ics", { text }),
     status: (provider: string) =>
         invoke<CalendarClientStatus>("calendar_client_status", { provider }),
     saveClient: (provider: string, clientId: string, clientSecret: string | null) =>
