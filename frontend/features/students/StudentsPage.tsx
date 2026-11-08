@@ -1,4 +1,13 @@
-import { For, Show, createResource, createSignal, untrack, type JSX } from "solid-js";
+import {
+    For,
+    Show,
+    createResource,
+    createSignal,
+    onCleanup,
+    onMount,
+    untrack,
+    type JSX,
+} from "solid-js";
 import {
     errorMessage,
     goals as goalsApi,
@@ -21,6 +30,7 @@ import {
     TextInput,
 } from "../../design-system/ui";
 import { formatDate, formatShortDate, initials, plural } from "../../shared/format";
+import { attendanceStats } from "../../shared/attendance";
 import { Icon } from "../../shared-ui";
 import { navigate, sessionPath, useRoute } from "../../app/router";
 
@@ -131,6 +141,16 @@ export function StudentsPage(): JSX.Element {
     const [creating, setCreating] = createSignal(false);
     const [error, setError] = createSignal("");
     const [students, { refetch }] = createResource(query, studentsApi.list);
+
+    onMount(() => {
+        const update = (): void => {
+            const params = new URLSearchParams(window.location.hash.split("?")[1] ?? "");
+            if (params.get("new") === "1") setCreating(true);
+        };
+        update();
+        window.addEventListener("hashchange", update);
+        onCleanup(() => window.removeEventListener("hashchange", update));
+    });
 
     async function addStudent(input: StudentInput): Promise<void> {
         try {
@@ -433,14 +453,25 @@ export function StudentDetailPage(): JSX.Element {
         }
     }
 
+    const attendance = (): { completed: number; noShows: number; rate: number | null } =>
+        attendanceStats(detail()?.sessions ?? []);
+
     const report = (): string => {
         const value = detail();
         if (!value) return "";
+        const stats = attendance();
         const lines = [
             `# Progress report · ${value.student.displayName}`,
             "",
             value.student.year ? `Year: ${value.student.year}` : "",
             value.student.subjects.length ? `Subjects: ${value.student.subjects.join(", ")}` : "",
+            "",
+            "## Attendance",
+            `- Completed lessons: ${stats.completed}`,
+            `- No-shows: ${stats.noShows}`,
+            stats.rate === null
+                ? "- Attendance rate: no completed or no-show lessons yet"
+                : `- Attendance rate: ${stats.rate}%`,
             "",
             "## Goals",
             ...value.goals.map(
@@ -1056,7 +1087,7 @@ export function StudentDetailPage(): JSX.Element {
                             <Panel>
                                 <PanelHeader
                                     title="Progress report"
-                                    detail="Generated from goals, skills, evidence, and sessions."
+                                    detail={`Generated from goals, skills, evidence, and sessions.${attendance().rate === null ? "" : ` Attendance ${attendance().rate}% · ${attendance().completed} completed · ${attendance().noShows} no-shows`}`}
                                     actions={
                                         <Button size="sm" onClick={() => window.print()}>
                                             Print
