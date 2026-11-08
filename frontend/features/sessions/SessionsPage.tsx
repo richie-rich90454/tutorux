@@ -4,6 +4,7 @@ import {
     createMemo,
     createResource,
     createSignal,
+    onCleanup,
     onMount,
     untrack,
     type JSX,
@@ -137,6 +138,7 @@ export function SessionForm(props: {
                             { value: "active", label: "Active" },
                             { value: "completed", label: "Completed" },
                             { value: "cancelled", label: "Cancelled" },
+                            { value: "no_show", label: "No-show" },
                         ]}
                     />
                 </Field>
@@ -181,7 +183,13 @@ export function SessionsPage(): JSX.Element {
         (source) => sessionsApi.list(null, source.status || null, 1000),
     );
     onMount(() => {
-        if (queryParams.get("new") === "1") setShowCreate(true);
+        const update = (): void => {
+            const params = new URLSearchParams(window.location.hash.split("?")[1] ?? "");
+            if (params.get("new") === "1") setShowCreate(true);
+        };
+        update();
+        window.addEventListener("hashchange", update);
+        onCleanup(() => window.removeEventListener("hashchange", update));
     });
 
     const visible = createMemo(() => {
@@ -289,6 +297,7 @@ export function SessionsPage(): JSX.Element {
                             { value: "active", label: "Active" },
                             { value: "completed", label: "Completed" },
                             { value: "cancelled", label: "Cancelled" },
+                            { value: "no_show", label: "No-show" },
                         ]}
                     />
                     <span class="ml-auto text-xs text-muted">{visible().length} sessions</span>
