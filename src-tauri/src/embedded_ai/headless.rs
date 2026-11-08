@@ -166,3 +166,29 @@ pub fn generate_model_text(
 
 #[allow(dead_code)]
 const _CONTEXT_ESTIMATE_BYTES: u64 = ESTIMATED_CONTEXT_BYTES_PER_TOKEN;
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[ignore = "requires TUTORUX_GGUF_MODEL pointing at a real GGUF model"]
+    fn generates_text_from_a_real_gguf() {
+        let path =
+            std::env::var("TUTORUX_GGUF_MODEL").expect("Set TUTORUX_GGUF_MODEL to a GGUF model");
+        let mut output = String::new();
+        let (tokens, bytes) = super::generate_model_text(
+            &path,
+            "You are a concise tutor.",
+            "Reply with one short sentence about fractions.",
+            32,
+            2,
+            &mut |piece| {
+                output.push_str(piece);
+                Ok(())
+            },
+        )
+        .expect("local GGUF generation");
+        assert!(tokens > 0);
+        assert!(bytes > 0);
+        assert!(!output.trim().is_empty());
+    }
+}
