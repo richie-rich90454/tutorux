@@ -1,0 +1,58 @@
+name: Feature request
+description: Propose a focused improvement to Tutorux
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Tutorux is deliberately local-first. Proposals that preserve private, offline lesson data are the easiest to accept.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the tutoring workflow or friction point, not only the proposed UI.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Keep it as small as possible while solving the whole problem.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Today
+        - Students
+        - Sessions
+        - Schedule
+        - Materials
+        - Guides
+        - Evidence
+        - Assistant
+        - Archive
+        - Settings
+        - Capture / transcription
+        - Workspace format
+        - Accessibility
+        - Developer experience
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: This proposal can work without a hosted account or mandatory cloud service.
+          required: true
