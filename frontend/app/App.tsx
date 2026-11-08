@@ -70,6 +70,26 @@ function RouteView(): JSX.Element {
     );
 }
 
+function StartupScreen(): JSX.Element {
+    return (
+        <div class="grid min-h-dvh place-items-center bg-canvas px-6">
+            <div
+                class="flex items-center gap-3 rounded-[8px] border border-line bg-surface px-4 py-3"
+                role="status"
+                aria-live="polite"
+            >
+                <span class="grid h-9 w-9 place-items-center rounded-[5px] border border-line bg-surface-subtle text-accent">
+                    <Icon name="archive" />
+                </span>
+                <span class="grid gap-0.5">
+                    <strong class="text-[13px] font-semibold text-ink">Tutorux</strong>
+                    <span class="text-xs text-muted">Opening your workspace…</span>
+                </span>
+            </div>
+        </div>
+    );
+}
+
 export function App(): JSX.Element {
     const workspace = useWorkspace();
     const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -81,6 +101,13 @@ export function App(): JSX.Element {
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
                 event.preventDefault();
                 setPaletteOpen((value) => !value);
+            } else if (
+                (event.ctrlKey || event.metaKey) &&
+                !event.shiftKey &&
+                event.key.toLowerCase() === "n"
+            ) {
+                event.preventDefault();
+                navigate("/sessions?new=1");
             } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
                 event.preventDefault();
                 workspace.notify("Changes save automatically into the workspace.", "info");
@@ -121,78 +148,80 @@ export function App(): JSX.Element {
     });
 
     return (
-        <Show when={workspace.summary()} fallback={<Welcome />}>
-            <ReminderWatcher />
-            <div class="flex h-dvh min-h-0 overflow-hidden bg-canvas">
-                <Sidebar
-                    onOpenPalette={() => setPaletteOpen(true)}
-                    mobileOpen={mobileOpen()}
-                    onCloseMobile={() => setMobileOpen(false)}
-                />
-                <div class="flex min-w-0 flex-1 flex-col">
-                    <div class="flex items-center gap-2 border-b border-line bg-canvas px-3 py-2 md:hidden">
-                        <button
-                            type="button"
-                            class="inline-grid h-8 w-8 place-items-center rounded-[5px] border border-line bg-surface text-ink"
-                            aria-label="Open navigation"
-                            onClick={() => setMobileOpen(true)}
+        <Show when={!workspace.restoring()} fallback={<StartupScreen />}>
+            <Show when={workspace.summary()} fallback={<Welcome />}>
+                <ReminderWatcher />
+                <div class="flex h-dvh min-h-0 overflow-hidden bg-canvas">
+                    <Sidebar
+                        onOpenPalette={() => setPaletteOpen(true)}
+                        mobileOpen={mobileOpen()}
+                        onCloseMobile={() => setMobileOpen(false)}
+                    />
+                    <div class="flex min-w-0 flex-1 flex-col">
+                        <div class="flex items-center gap-2 border-b border-line bg-canvas px-3 py-2 md:hidden">
+                            <button
+                                type="button"
+                                class="inline-grid h-8 w-8 place-items-center rounded-[5px] border border-line bg-surface text-ink"
+                                aria-label="Open navigation"
+                                onClick={() => setMobileOpen(true)}
+                            >
+                                <Icon name="more" />
+                            </button>
+                            <strong class="min-w-0 flex-1 truncate text-xs font-medium text-ink">
+                                {workspace.summary()?.name}
+                            </strong>
+                            <Show when={workspace.dirty()}>
+                                <span class="text-[11px] text-warning">Unsaved changes</span>
+                            </Show>
+                        </div>
+                        <main
+                            id="main-content"
+                            tabindex="-1"
+                            class="min-h-0 flex-1 overflow-auto focus-visible:outline-none"
                         >
-                            <Icon name="more" />
-                        </button>
-                        <strong class="min-w-0 flex-1 truncate text-xs font-medium text-ink">
-                            {workspace.summary()?.name}
-                        </strong>
-                        <Show when={workspace.dirty()}>
-                            <span class="text-[11px] text-warning">Unsaved changes</span>
-                        </Show>
+                            <RouteView />
+                        </main>
                     </div>
-                    <main
-                        id="main-content"
-                        tabindex="-1"
-                        class="min-h-0 flex-1 overflow-auto focus-visible:outline-none"
-                    >
-                        <RouteView />
-                    </main>
                 </div>
-            </div>
-            <CommandPalette open={paletteOpen()} onClose={() => setPaletteOpen(false)} />
-            <Show when={workspace.notice()}>
-                {(notice) => (
-                    <div
-                        class="fixed bottom-5 right-5 z-40 flex max-w-[min(440px,_calc(100vw_-_32px))] items-start gap-2 rounded-[5px] border border-line bg-surface px-3 py-2 text-xs text-ink-soft"
-                        role="status"
-                        aria-live="polite"
-                    >
-                        <span
-                            class={
-                                notice().tone === "danger"
-                                    ? "mt-0.5 text-danger"
-                                    : notice().tone === "success"
-                                      ? "mt-0.5 text-success"
-                                      : "mt-0.5 text-accent"
-                            }
+                <CommandPalette open={paletteOpen()} onClose={() => setPaletteOpen(false)} />
+                <Show when={workspace.notice()}>
+                    {(notice) => (
+                        <div
+                            class="fixed bottom-5 right-5 z-40 flex max-w-[min(440px,_calc(100vw_-_32px))] items-start gap-2 rounded-[5px] border border-line bg-surface px-3 py-2 text-xs text-ink-soft"
+                            role="status"
+                            aria-live="polite"
                         >
-                            <Icon
-                                name={
+                            <span
+                                class={
                                     notice().tone === "danger"
-                                        ? "close"
+                                        ? "mt-0.5 text-danger"
                                         : notice().tone === "success"
-                                          ? "check"
-                                          : "spark"
+                                          ? "mt-0.5 text-success"
+                                          : "mt-0.5 text-accent"
                                 }
-                            />
-                        </span>
-                        <span class="min-w-0 flex-1 leading-relaxed">{notice().message}</span>
-                        <button
-                            type="button"
-                            class="text-faint hover:text-ink"
-                            aria-label="Dismiss notification"
-                            onClick={() => workspace.dismissNotice()}
-                        >
-                            <Icon name="close" />
-                        </button>
-                    </div>
-                )}
+                            >
+                                <Icon
+                                    name={
+                                        notice().tone === "danger"
+                                            ? "close"
+                                            : notice().tone === "success"
+                                              ? "check"
+                                              : "spark"
+                                    }
+                                />
+                            </span>
+                            <span class="min-w-0 flex-1 leading-relaxed">{notice().message}</span>
+                            <button
+                                type="button"
+                                class="text-faint hover:text-ink"
+                                aria-label="Dismiss notification"
+                                onClick={() => workspace.dismissNotice()}
+                            >
+                                <Icon name="close" />
+                            </button>
+                        </div>
+                    )}
+                </Show>
             </Show>
         </Show>
     );
