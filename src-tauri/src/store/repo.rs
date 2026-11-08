@@ -435,7 +435,7 @@ pub fn list_recent_sessions(
             "{SESSION_SELECT}
              WHERE s.deleted_at IS NULL
                AND (s.started_at IS NOT NULL OR s.scheduled_at <= ?1)
-               AND s.status IN ('active', 'completed')
+               AND s.status IN ('active', 'completed', 'no_show')
              ORDER BY COALESCE(s.started_at, s.scheduled_at, s.created_at) DESC
              LIMIT ?2"
         ))
@@ -519,7 +519,7 @@ pub fn create_session(conn: &Connection, input: &SessionInput) -> Result<Session
 
 fn normalized_session_status(value: &str) -> &str {
     match value {
-        "planned" | "active" | "completed" | "cancelled" => value,
+        "planned" | "active" | "completed" | "cancelled" | "no_show" => value,
         _ => "planned",
     }
 }
