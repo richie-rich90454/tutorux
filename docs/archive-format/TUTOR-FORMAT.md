@@ -6,7 +6,7 @@ A `.tutor` file is a SQLite database. There is no custom container, custom B+ tr
 
 ```sql
 PRAGMA application_id = 0x54555452;  -- "TUTR"
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 ```
 
 `application_id` identifies a Tutorux workspace. `user_version` is the schema migration version.
@@ -44,7 +44,7 @@ WAL allows incremental writes and crash recovery. A clean close checkpoints the 
 
 ### Schedule
 
-- `schedule_events(id, student_id, title, subject, start_at, duration_min, recurrence, location, notes, calendar_provider, calendar_account_id, external_id, external_etag, deleted_at, timestamps)`
+- `schedule_events(id, student_id, title, subject, start_at, duration_min, recurrence, recurrence_interval, recurrence_until, location, notes, calendar_provider, calendar_account_id, external_id, external_etag, deleted_at, timestamps)`
 - `calendar_accounts(id, provider, account_email, credential_key, sync_cursor, deleted_at, timestamps)`
 
 Recurring events materialize future session rows. The unique index on `(schedule_event_id, scheduled_at)` prevents duplicate occurrences.
@@ -109,12 +109,13 @@ Import creates new entity IDs, reuses an existing student only when the display 
 ## Copies
 
 - A recovery copy is a verified SQLite snapshot.
+- A best-effort salvage copy reads every readable row, skips unreadable rows, rebuilds search, and reports copied/skipped counts. It cannot reconstruct physically destroyed pages.
 - A sanitized `.tutor` copy deletes recordings, transcripts, journals, observations, materials, AI jobs, and calendar accounts; masks student/session/guide/evidence text; clears notes; and rebuilds search rows for the remaining entities.
 - Encrypted sanitized copies keep the source passphrase.
 
 ## OCR text
 
-OCR writes the recognized text to `materials.extracted_text` and updates the material search row. The database schema does not change for OCR.
+OCR writes recognized text to `materials.extracted_text` and updates the material search row. The database schema does not change for OCR. Scanned PDF pages are rendered locally by PDFium; no page images are written to the workspace.
 
 ## Encryption
 
@@ -139,4 +140,4 @@ Every schema change must:
 3. preserve existing rows;
 4. be covered by a Rust integration test.
 
-The current schema version is `1`. There is no legacy `.tux` importer; that format was retired before deployment.
+The current schema version is `2`. Version 1 workspaces are migrated on open by adding recurrence interval and end-date columns. There is no legacy `.tux` importer; that format was retired before deployment.
