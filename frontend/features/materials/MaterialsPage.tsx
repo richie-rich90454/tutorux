@@ -278,7 +278,12 @@ export function MaterialsPage(): JSX.Element {
                                         <Show when={material.extractedText}>
                                             <Badge tone="success">text extracted</Badge>
                                         </Show>
-                                        <Show when={material.mimeType.startsWith("image/")}>
+                                        <Show
+                                            when={
+                                                material.mimeType.startsWith("image/") ||
+                                                material.mimeType === "application/pdf"
+                                            }
+                                        >
                                             <Button
                                                 size="sm"
                                                 onClick={() => void extractText(material)}
