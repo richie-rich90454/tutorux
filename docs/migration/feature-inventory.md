@@ -24,19 +24,22 @@ This is the current state of the SQLite/Tauri rewrite.
 | Observations | Implemented | Type, priority, title, body |
 | Materials | Implemented | Files, links, chunked storage, previews, FTS indexing |
 | Image OCR | Implemented | Bundled Ocrs models for PNG, JPEG, WebP, BMP, TIFF, GIF; extracted text indexed |
-| Scanned PDF OCR | Not implemented | Pages must be converted to images |
+| Scanned PDF OCR | Implemented | Bundled PDFium renders low-text pages; embedded PDF text is used first |
 | Guides | Implemented | Create, edit, preview, Markdown/HTML/Word/text export, print/PDF, built-in templates |
 | Evidence | Implemented | Records, approval, timeline, and linked graph |
 | Session packages | Implemented | `.tutorpkg` export/import with ID and evidence-source remapping |
-| Schedule | Implemented | One-off and recurring series materialize sessions, ICS import/export |
+| Schedule | Implemented | One-off and recurring series with interval/end date materialize sessions, ICS import/export |
+| Schedule conflicts | Implemented | Overlap warnings allow an explicit save override |
+| Attendance | Implemented | No-show status and attendance rate in student reports |
 | Calendar OAuth | Implemented | Google and Microsoft PKCE OAuth; requires external app registration |
 | Apple Calendar | Implemented | CalDAV with app-specific password; requires live account qualification |
 | Reminders | Implemented | Desktop notifications while Tutorux is open, with configurable lead time |
-| Today | Implemented | Upcoming sessions, continue card, recent sessions, students, onboarding checklist |
+| Today | Implemented | Upcoming sessions, continue card, recent sessions, students, backup health |
 | Global search | Implemented | FTS5 over students, sessions, notes, cues, materials, guides, evidence |
 | Assistant | Implemented | Cloud providers with consent; local GGUF with user-supplied model |
 | Simple/Advanced | Implemented | Provider setup, graph, and maintenance controls hidden in Simple |
-| Manual backup | Implemented | No automatic backup |
+| Manual backup | Implemented | No automatic backup; backup age is shown in Today and Archive |
+| SQLite salvage | Implemented | Best-effort row copy, skipped-row report, rebuilt search |
 | Mobile layout | Implemented | Responsive routes checked at 390 px; file audio attachment available |
 | Mobile hardware capture | Not qualified | No device matrix was available |
 | Multi-track mixing | Implemented | Separate tracks with per-track gain and mute |
