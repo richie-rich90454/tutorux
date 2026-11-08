@@ -1,20 +1,104 @@
+<div align="center">
+
+<img src="docs/assets/social-preview.png" alt="Tutorux — a private, local-first tutoring workspace" width="100%" />
+
 # Tutorux
 
-Tutorux is a local-first tutoring workspace for students, sessions, recordings, transcripts, notes, materials, evidence, progress, and study guides. A workspace is one portable `.tutor` file.
+**Your entire tutoring practice. One private file.**
 
-The application is a SolidJS and TypeScript interface running inside a Tauri 2 desktop shell. The workspace store is Rust and SQLite. The browser edition and the retired custom `.tux` archive engine are no longer part of the product.
+Plan lessons, capture sessions, transcribe locally, and build evidence-backed progress reports without an account or a cloud.
 
-## Requirements
+[![License: GPL-3.0-only](https://img.shields.io/badge/license-GPL--3.0--only-15803d.svg)](LICENSE) [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-374151.svg)](#quick-start) [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB.svg)](https://tauri.app) [![Rust](https://img.shields.io/badge/Rust-1.90%2B-B7410E.svg)](https://www.rust-lang.org) [![SolidJS](https://img.shields.io/badge/SolidJS-1.9-2C4F7C.svg)](https://www.solidjs.com) [![PRs welcome](https://img.shields.io/badge/PRs-welcome-15803d.svg)](CONTRIBUTING.md)
 
-- Node.js 22.13 or newer
-- pnpm 12.14.0
-- Rust stable 1.90 or newer
-- The native Tauri prerequisites for your operating system
-- The system WebView2 runtime on Windows
+[Download](#quick-start) · [Features](#feature-tour) · [Screenshots](#screenshots) · [Architecture](#architecture) · [Contributing](CONTRIBUTING.md)
 
-FFmpeg is optional and is not required by the new desktop workflow.
+</div>
 
-## Development
+---
+
+## Why Tutorux
+
+Tutoring software usually forces a choice: a cloud platform that owns your lesson data, or a folder of documents that slowly turns into chaos.
+
+Tutorux is a different shape. A **single portable `.tutor` file** holds the whole practice — students, sessions, recordings, transcripts, notes, materials, evidence, goals, and guides. It stays on your device. There is no account, no sync service, and no workspace database in someone else's cloud.
+
+It is built for the tutor who wants:
+
+- **One source of truth** instead of notes in five apps.
+- **A private workspace** instead of a vendor-controlled account.
+- **Session evidence** instead of memory and guesswork.
+- **Local AI** for transcription, OCR, and study material generation.
+- **A real desktop app** built with Rust, SQLite, Tauri, and SolidJS.
+
+> If Tutorux saves you time, a star helps another tutor find it.
+
+## Screenshots
+
+| Today | Session capture |
+| --- | --- |
+| ![Today](docs/assets/screenshots/today-light.png) | ![Session capture](docs/assets/screenshots/capture-light.png) |
+| **Students** | **Schedule** |
+| ![Students](docs/assets/screenshots/students-light.png) | ![Schedule](docs/assets/screenshots/schedule-light.png) |
+| **Dark theme** | **Settings** |
+| ![Today in dark theme](docs/assets/screenshots/today-dark.png) | ![Settings](docs/assets/screenshots/settings-dark.png) |
+
+## Feature tour
+
+| Area | What it does |
+| --- | --- |
+| **Today** | A daily agenda, next lesson, recent sessions, student list, and workspace backup health. |
+| **Students** | Profiles, subjects, goals, skill ratings, session history, evidence, materials, and printable progress reports. |
+| **Sessions** | Overview, capture, transcript, notes, materials, evidence, and guide tabs in one lesson record. |
+| **Capture** | Microphone plus optional system audio, separate tracks, local mixer, audio-file import, and local Whisper transcription. |
+| **Schedule** | One-off and recurring lessons, interval and end dates, next-lesson planning, conflict warnings, reminders, and ICS import/export. |
+| **Materials** | Files, links, previews, image OCR, scanned-PDF OCR, and searchable extracted text. |
+| **Guides** | Markdown guides, templates, print/PDF, and session-to-guide generation. |
+| **Evidence** | Observations, approval status, linked evidence graph, timelines, and student progress context. |
+| **Search** | Global FTS5 search across students, sessions, notes, transcripts, materials, guides, and evidence with `Ctrl/Cmd+K`. |
+| **Assistant** | Reviewed cloud AI requests plus local GGUF inference; nothing leaves the machine without an explicit action. |
+| **Archive** | Verified backups, backup-age health, compaction, search reindex, recovery copies, sanitized copies, and best-effort SQLite salvage. |
+| **Privacy** | Optional SQLCipher encryption, OS credential-store keys, portable encrypted backups, and 90-day Trash recovery. |
+
+## The one-file workspace
+
+A `.tutor` workspace is a SQLite database with:
+
+- Typed tables for students, sessions, schedule events, journals, observations, transcript cues, materials, recordings, guides, evidence, goals, skills, settings, and AI jobs.
+- FTS5 full-text search.
+- Content-addressed, zstd-compressed BLOB chunks with deduplication.
+- Optional SQLCipher encryption at rest.
+- 90-day Trash recovery.
+- Manual verified backups with backup-age health.
+- Portable `.tutorpkg` session packages.
+
+That means you can move, copy, back up, encrypt, or archive a whole tutoring practice as one file.
+
+See [the workspace format](docs/archive-format/TUTOR-FORMAT.md) for the full schema.
+
+## Privacy by default
+
+- No account, sync service, telemetry, or hosted workspace.
+- Recordings, transcripts, notes, and materials stay local.
+- Cloud AI is opt-in, reviewed, and sent through native host allowlists.
+- Calendar and AI credentials live in the OS credential store, not the workspace.
+- Encrypted workspaces use SQLCipher; the key is zeroized on close.
+- Sanitized copies remove private content before sharing.
+
+## Quick start
+
+### Download
+
+Grab the latest build from [Releases](https://github.com/richie-rich90454/tutorux/releases/latest).
+
+| Artifact                         | Use                                                         |
+| -------------------------------- | ----------------------------------------------------------- |
+| `Tutorux_1.0.0_x64_en-US.msi`    | Windows installer                                           |
+| `Tutorux_1.0.0_x64-setup.exe`    | Windows NSIS installer                                      |
+| `Tutorux_1.0.0_x64_portable.exe` | Single-file portable Windows build; no separate runtime DLL |
+
+### Build from source
+
+Requirements: Node.js 22.13+, pnpm 12.14, Rust 1.90+, the native Tauri prerequisites, and WebView2 on Windows.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -22,106 +106,90 @@ pnpm run pdfium:fetch
 pnpm run desktop:dev
 ```
 
-`pnpm run pdfium:fetch` downloads the platform PDFium runtime used for scanned-PDF OCR. `pnpm run desktop:build` fetches it automatically.
+`pnpm run desktop:build` fetches the PDFium runtime when needed and produces the MSI, NSIS setup, and portable EXE under `release/`. The portable EXE embeds the runtime. On macOS/Linux, run `pnpm run pdfium:fetch` before any Rust build command so the embedded runtime is available at compile time.
 
-The desktop shell starts Vite on `127.0.0.1:1420` and opens the Tauri window.
-
-Useful checks:
+For the full verification loop:
 
 ```sh
 pnpm run typecheck
 pnpm run lint
 pnpm run format:check
-pnpm run test
 pnpm run test:coverage
 pnpm run build
-cargo test --manifest-path src-tauri/Cargo.toml --lib
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml --lib
+pnpm run desktop:build
 ```
 
-`pnpm run build` typechecks the frontend and produces the desktop frontend in `dist/`.
+## Architecture
 
-Build the desktop application without installers:
-
-```sh
-pnpm exec tauri build --no-bundle
+```mermaid
+flowchart LR
+  UI[SolidJS shell] --> API[Typed Tauri client]
+  API --> HOST[Rust desktop host]
+  HOST --> STORE[Workspace store]
+  STORE --> DB[(.tutor SQLite file)]
+  STORE --> BLOBS[Compressed chunk store]
+  STORE --> FTS[FTS5 search]
+  HOST --> LOCAL[Whisper, OCR, local GGUF]
+  HOST --> NET[Reviewed cloud transport]
 ```
 
-The binary is written to `src-tauri/target/release/tutorux-desktop.exe` on Windows. `pnpm run desktop:build` performs the full Tauri packaging flow and writes three release artifacts under `release/`: the MSI, the NSIS setup executable, and the portable executable. The portable executable embeds the PDFium runtime.
+- **Frontend:** SolidJS, TypeScript, Vite, Tailwind CSS.
+- **Desktop shell:** Tauri 2.
+- **Core:** Rust, SQLite/SQLCipher, FTS5, zstd, SQLite online backup.
+- **Local AI:** Whisper transcription, image/PDF OCR, GGUF inference.
+- **Storage:** one `.tutor` file per workspace.
 
-## Workspace format
+More detail: [Architecture](docs/ARCHITECTURE.md), [TypeScript development](docs/development/TYPESCRIPT.md), [Verification](docs/verification.md), [Production readiness](docs/engineering/PRODUCTION-READINESS.md).
 
-A `.tutor` workspace is a SQLite database with:
+## Status and deliberate limits
 
-- typed tables for students, sessions, schedule events, journal entries, observations, transcript cues, materials, recordings, guides, evidence, goals, skills, settings, and AI jobs;
-- an FTS5 index for global search;
-- content-addressed compressed BLOB storage with deduplication;
-- optional SQLCipher encryption;
-- 90-day Trash recovery;
-- manual verified backups.
+Tutorux is a working desktop core for a single-tutor local workflow. It is intentionally local-first and honest about qualification boundaries.
 
-Open and create `.tutor` files from the welcome screen. Encrypted workspaces prompt for the passphrase. Passphrase rotation is available in Settings after unlocking.
+- Live Google/Microsoft OAuth, Apple CalDAV, cloud AI, and local GGUF generation require external credentials, models, or accounts. Their code paths and runbooks are documented as environment-gated.
+- Scanned PDF OCR is supported. Other document formats must be converted first.
+- Reminders run while Tutorux is open; there is no background scheduler when the app is closed.
+- Salvage recovers readable SQLite rows; physically destroyed pages cannot be reconstructed.
+- The 1 GiB qualification passes. The 100 GB qualification and full capture-device matrix are environment-gated.
 
-See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive-format/TUTOR-FORMAT.md).
+See [HANDOFF.md](HANDOFF.md) for the complete status and qualification matrix.
 
-## Features
+## Contributing
 
-- Today, Students, Sessions, Schedule, Materials, Guides, Evidence, Assistant, Archive, and Settings.
-- Session detail with Overview, Capture, Transcript, Notes, Materials, Evidence, and Guide tabs.
-- Microphone recording with optional system audio, separate microphone/system tracks, a local mixer, file-based audio import, and local Whisper transcription.
-- Evidence records, approval, timelines, and a linked evidence graph.
-- Cloud AI through reviewed native transports, plus local GGUF inference and an embedded Whisper model.
-- Global FTS5 search with `Ctrl/Cmd+K`.
-- Global goals, skill ratings, evidence timelines, and printable progress reports.
-- ICS calendar import/export, recurring schedule-to-session materialization, reminder notifications, and Google/Microsoft/Apple CalDAV calendar sync.
-- Image OCR with the bundled OCR engine for PNG, JPEG, WebP, BMP, TIFF, and GIF materials.
-- Scanned-PDF OCR with bundled PDFium and hybrid embedded-text/raster extraction.
-- Session packages (`.tutorpkg`) that transfer one session, its student, notes, evidence, guides, materials, and recordings.
-- Archive compaction, search reindexing, recovery copies, sanitized copies, and best-effort row salvage.
-- Manual workspace backups with backup-age health.
-- Daily, weekly, biweekly, and monthly recurrence with interval and end-date support, including ICS `TZID` import.
-- No-show attendance status and report attendance rates.
-- Optional SQLCipher workspace encryption and OS credential-store AI/calendar credentials.
+Contributions are welcome: bug reports, feature proposals, documentation, tests, and platform qualification.
 
-## Deliberate limits
+1. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+2. Open an issue using the templates in `.github/ISSUE_TEMPLATE/`.
+3. Keep changes focused and include tests where the behavior can regress.
+4. Run the verification commands above before opening a pull request.
 
-- Google Calendar and Outlook OAuth require desktop OAuth client credentials from the provider. Apple Calendar uses CalDAV with an app-specific password. Live provider qualification is environment-gated.
-- OCR reads image materials and PDF pages. Other formats must be converted first.
-- The mobile layout is responsive and supports file-based audio attachment, but device-qualified mobile capture has not been run.
-- Reminders fire while Tutorux is open; there is no OS-level background scheduler when the app is closed.
-- Archive recovery copies every readable row and reports skipped rows. It cannot reconstruct bytes that no longer exist on disk or inside a destroyed SQLite page.
-- The evidence graph shows links; automated graph analytics are not included.
-- A 1 GiB synthetic workspace qualification passes. The full 100 GB qualification has not been run.
-- Live cloud AI, local GGUF generation, OAuth calendar connections, and capture-device matrices require external credentials, models, or hardware.
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [Workspace format](docs/archive-format/TUTOR-FORMAT.md)
-- [TypeScript development](docs/development/TYPESCRIPT.md)
-- [Releasing](docs/development/RELEASING.md)
-- [Verification](docs/verification.md)
-- [Capture matrix](docs/verification/CAPTURE-MATRIX.md)
-- [Portable privacy](docs/security/PORTABLE-PRIVACY.md)
-- [Performance design](docs/performance/TYPESCRIPT-BASELINE.md)
-- [AI integration](docs/ai/TYPESCRIPT-HANDOFF.md)
-- [Feature inventory](docs/migration/feature-inventory.md)
-- [Production readiness](docs/engineering/PRODUCTION-READINESS.md)
-
-## License
-
-Tutorux is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
+Please do not report security issues in public. See [SECURITY.md](SECURITY.md).
 
 ## Credits and third-party licenses
 
-- **PDFium** — PDF rendering used for scanned-PDF OCR. Distributed by [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries), licensed under BSD-3-Clause. The runtime is embedded in the portable executable. Attribution is in [src-tauri/resources/pdfium/LICENSE](src-tauri/resources/pdfium/LICENSE).
-- **Ocrs** — local OCR engine and bundled detection/recognition models. Models are trained on the HierText dataset by Google Research and licensed under CC BY-SA 4.0. See [src-tauri/resources/ocr/LICENSE.md](src-tauri/resources/ocr/LICENSE.md).
-- **Whisper / whisper.cpp** — local speech transcription engine, licensed under MIT. Tutorux uses the `whisper-rs` bindings and the bundled multilingual Whisper model.
-- **llama.cpp** — local GGUF inference runtime, licensed under MIT. Tutorux uses the `llama-cpp-2` bindings.
-- **SQLite and SQLCipher** — workspace storage and optional encryption. SQLite is public domain; SQLCipher is licensed under BSD-style terms.
-- **Tauri** — desktop shell and native bridge, licensed under MIT or Apache-2.0.
-- **SolidJS** — UI runtime, licensed under MIT.
-- **Tailwind CSS** — styling engine, licensed under MIT.
-- **Noto Sans** — bundled interface font, licensed under the SIL Open Font License 1.1. See [frontend/assets/fonts/OFL.txt](frontend/assets/fonts/OFL.txt).
-- Other Rust and JavaScript dependencies retain their upstream licenses; the resolved dependency versions are recorded in `Cargo.lock` and `pnpm-lock.yaml`.
+- **PDFium** — local PDF rendering for scanned-PDF OCR. Distributed by [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries), licensed under BSD-3-Clause. The runtime is embedded in the portable executable. Attribution: [src-tauri/resources/pdfium/LICENSE](src-tauri/resources/pdfium/LICENSE).
+- **Ocrs** — local OCR engine and bundled models. Models are trained on the HierText dataset by Google Research and licensed under CC BY-SA 4.0. Attribution: [src-tauri/resources/ocr/LICENSE.md](src-tauri/resources/ocr/LICENSE.md).
+- **Whisper / whisper.cpp** — local speech transcription, MIT. Tutorux uses `whisper-rs` and a bundled multilingual Whisper model.
+- **llama.cpp** — local GGUF inference, MIT. Tutorux uses `llama-cpp-2`.
+- **SQLite and SQLCipher** — public domain and BSD-style licenses.
+- **Tauri** — MIT or Apache-2.0.
+- **SolidJS** — MIT.
+- **Tailwind CSS** — MIT.
+- **Noto Sans** — SIL Open Font License 1.1. See [frontend/assets/fonts/OFL.txt](frontend/assets/fonts/OFL.txt).
+- Remaining dependency licenses are recorded in `Cargo.lock` and `pnpm-lock.yaml`.
+
+## License
+
+Tutorux is licensed under **GPL-3.0-only**. See [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**One file. Your practice. Your data.**
+
+[Back to top](#tutorux)
+
+</div>
