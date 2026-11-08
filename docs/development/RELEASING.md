@@ -16,6 +16,7 @@ SQLCipher is built through `rusqlite` with bundled SQLCipher and vendored OpenSS
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm run pdfium:fetch
 pnpm run typecheck
 pnpm run lint
 pnpm run format:check
@@ -62,6 +63,7 @@ The desktop bundle registers `.tutor` files as Tutorux Workspaces. Opening a `.t
 - [ ] Create, save, reopen, encrypt, unlock, rekey, and back up a workspace.
 - [ ] Record audio, stop, play the mixer, attach an audio file, and transcribe real speech with the bundled Whisper model.
 - [ ] Run OCR on a printed image and confirm the extracted text is searchable.
+- [ ] Run OCR on a scanned PDF after `pnpm run pdfium:fetch` and confirm the extracted text is searchable.
 - [ ] Export and import a `.tutorpkg` session package.
 - [ ] Run compaction, reindexing, backup, recovery copy, and a sanitized copy.
 - [ ] Verify reminders at the configured lead time.
@@ -73,8 +75,7 @@ The desktop bundle registers `.tutor` files as Tutorux Workspaces. Opening a `.t
 
 ## Known qualification gaps
 
-- Google/Microsoft OAuth and Apple CalDAV require external accounts and were not live-qualified here.
-- Scanned PDF OCR is not implemented; image OCR is.
-- Mobile hardware capture, 100 GB stress qualification, and macOS/Linux device capture matrices remain future work.
-- Archive recovery copies a healthy workspace; it does not salvage rows from a physically corrupted SQLite file.
+- Google/Microsoft OAuth and Apple CalDAV require external accounts and are environment-gated.
+- Mobile hardware capture, 100 GB stress qualification, and macOS/Linux device capture matrices remain environment-gated.
+- Archive salvage copies readable rows; it cannot reconstruct physically destroyed SQLite pages.
 - Linux/macOS native capture qualification still needs real device matrices.
