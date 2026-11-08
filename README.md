@@ -18,8 +18,11 @@ FFmpeg is optional and is not required by the new desktop workflow.
 
 ```sh
 pnpm install --frozen-lockfile
+pnpm run pdfium:fetch
 pnpm run desktop:dev
 ```
+
+`pnpm run pdfium:fetch` downloads the platform PDFium runtime used for scanned-PDF OCR. `pnpm run desktop:build` fetches it automatically.
 
 The desktop shell starts Vite on `127.0.0.1:1420` and opens the Tauri window.
 
@@ -45,7 +48,7 @@ Build the desktop application without installers:
 pnpm exec tauri build --no-bundle
 ```
 
-The binary is written to `src-tauri/target/release/tutorux-desktop.exe` on Windows. `pnpm run desktop:build` performs the full Tauri packaging flow and writes release artifacts under `release/`.
+The binary is written to `src-tauri/target/release/tutorux-desktop.exe` on Windows. `pnpm run desktop:build` performs the full Tauri packaging flow and writes three release artifacts under `release/`: the MSI, the NSIS setup executable, and the portable executable. The portable executable embeds the PDFium runtime.
 
 ## Workspace format
 
@@ -73,21 +76,24 @@ See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive
 - Global goals, skill ratings, evidence timelines, and printable progress reports.
 - ICS calendar import/export, recurring schedule-to-session materialization, reminder notifications, and Google/Microsoft/Apple CalDAV calendar sync.
 - Image OCR with the bundled OCR engine for PNG, JPEG, WebP, BMP, TIFF, and GIF materials.
+- Scanned-PDF OCR with bundled PDFium and hybrid embedded-text/raster extraction.
 - Session packages (`.tutorpkg`) that transfer one session, its student, notes, evidence, guides, materials, and recordings.
-- Archive compaction, search reindexing, recovery copies, and sanitized copies.
-- Manual workspace backups that preserve encryption.
+- Archive compaction, search reindexing, recovery copies, sanitized copies, and best-effort row salvage.
+- Manual workspace backups with backup-age health.
+- Daily, weekly, biweekly, and monthly recurrence with interval and end-date support, including ICS `TZID` import.
+- No-show attendance status and report attendance rates.
 - Optional SQLCipher workspace encryption and OS credential-store AI/calendar credentials.
 
 ## Deliberate limits
 
-- Google Calendar and Outlook OAuth require desktop OAuth client credentials from the provider. Apple Calendar uses CalDAV with an app-specific password. Live provider qualification is not included in the test environment.
-- OCR reads image materials. Scanned PDF pages must be converted to images before OCR.
+- Google Calendar and Outlook OAuth require desktop OAuth client credentials from the provider. Apple Calendar uses CalDAV with an app-specific password. Live provider qualification is environment-gated.
+- OCR reads image materials and PDF pages. Other formats must be converted first.
 - The mobile layout is responsive and supports file-based audio attachment, but device-qualified mobile capture has not been run.
 - Reminders fire while Tutorux is open; there is no OS-level background scheduler when the app is closed.
-- Archive recovery creates a verified copy of a healthy workspace. It does not salvage individual rows from a physically corrupted SQLite file.
+- Archive recovery copies every readable row and reports skipped rows. It cannot reconstruct bytes that no longer exist on disk or inside a destroyed SQLite page.
 - The evidence graph shows links; automated graph analytics are not included.
 - A 1 GiB synthetic workspace qualification passes. The full 100 GB qualification has not been run.
-- Live cloud AI, local GGUF generation, OAuth calendar connections, and real capture-device matrices require external credentials, models, or hardware.
+- Live cloud AI, local GGUF generation, OAuth calendar connections, and capture-device matrices require external credentials, models, or hardware.
 
 ## Documentation
 
@@ -96,6 +102,7 @@ See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive
 - [TypeScript development](docs/development/TYPESCRIPT.md)
 - [Releasing](docs/development/RELEASING.md)
 - [Verification](docs/verification.md)
+- [Capture matrix](docs/verification/CAPTURE-MATRIX.md)
 - [Portable privacy](docs/security/PORTABLE-PRIVACY.md)
 - [Performance design](docs/performance/TYPESCRIPT-BASELINE.md)
 - [AI integration](docs/ai/TYPESCRIPT-HANDOFF.md)
@@ -106,4 +113,15 @@ See [Architecture](docs/ARCHITECTURE.md) and [the workspace format](docs/archive
 
 Tutorux is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
 
-The bundled OCR models are from the Ocrs project, trained on the HierText dataset by Google Research, and licensed under CC BY-SA 4.0. The attribution is in [src-tauri/resources/ocr/LICENSE.md](src-tauri/resources/ocr/LICENSE.md).
+## Credits and third-party licenses
+
+- **PDFium** — PDF rendering used for scanned-PDF OCR. Distributed by [pdfium-binaries](https://github.com/bblanchon/pdfium-binaries), licensed under BSD-3-Clause. The runtime is embedded in the portable executable. Attribution is in [src-tauri/resources/pdfium/LICENSE](src-tauri/resources/pdfium/LICENSE).
+- **Ocrs** — local OCR engine and bundled detection/recognition models. Models are trained on the HierText dataset by Google Research and licensed under CC BY-SA 4.0. See [src-tauri/resources/ocr/LICENSE.md](src-tauri/resources/ocr/LICENSE.md).
+- **Whisper / whisper.cpp** — local speech transcription engine, licensed under MIT. Tutorux uses the `whisper-rs` bindings and the bundled multilingual Whisper model.
+- **llama.cpp** — local GGUF inference runtime, licensed under MIT. Tutorux uses the `llama-cpp-2` bindings.
+- **SQLite and SQLCipher** — workspace storage and optional encryption. SQLite is public domain; SQLCipher is licensed under BSD-style terms.
+- **Tauri** — desktop shell and native bridge, licensed under MIT or Apache-2.0.
+- **SolidJS** — UI runtime, licensed under MIT.
+- **Tailwind CSS** — styling engine, licensed under MIT.
+- **Noto Sans** — bundled interface font, licensed under the SIL Open Font License 1.1. See [frontend/assets/fonts/OFL.txt](frontend/assets/fonts/OFL.txt).
+- Other Rust and JavaScript dependencies retain their upstream licenses; the resolved dependency versions are recorded in `Cargo.lock` and `pnpm-lock.yaml`.
