@@ -12,11 +12,15 @@ This replaces the retired custom-format production audit.
 - Session capture with microphone and optional system audio, separate tracks, and a local mixer.
 - Local Whisper with a real speech fixture and the bundled model.
 - Local image OCR with embedded models and a real printed-text fixture.
+- Local scanned-PDF OCR with bundled PDFium and hybrid embedded-text/raster extraction.
 - Local GGUF selection/loading and reviewed cloud AI transport.
 - Google/Microsoft OAuth and Apple CalDAV calendar integration code with credential-store token storage.
+- ICS recurrence with timezone, interval, and end-date handling.
 - Reminder notifications with configurable lead time.
 - `.tutorpkg` session packages with ID and evidence-source remapping.
 - Evidence links and graph view.
+- Manual verified backups with backup-age health.
+- Best-effort SQLite row salvage with a recovery report.
 - Desktop release binary with embedded assets.
 - `.tutor` file association and single-instance launch handoff.
 - Removed legacy `.tux`, browser, CLI, and console surfaces.
@@ -24,6 +28,7 @@ This replaces the retired custom-format production audit.
 ## Verified commands
 
 ```text
+pnpm run pdfium:fetch
 pnpm run typecheck
 pnpm run lint
 pnpm run format:check
@@ -36,9 +41,9 @@ pnpm exec tauri build --no-bundle
 pnpm run desktop:build
 ```
 
-All pass as of the latest implementation pass. The packaged binary was launched, loaded embedded assets from `https://tauri.localhost`, and completed the route and workspace smoke test. `desktop:build` produced the MSI, NSIS setup, and portable EXE under `release/`.
+Local checks in the current pass: typecheck, lint, format, frontend coverage, frontend build, Cargo format, Clippy, and the Rust library suite pass. `desktop:build` produced exactly the MSI, NSIS setup, and single-file portable EXE under `release/` in this pass.
 
-The 1 GiB synthetic workspace qualification passed with integrity `ok`. Real Whisper speech and real OCR text fixtures pass.
+The 1 GiB synthetic workspace qualification passed with integrity `ok`. Real Whisper speech, printed-image OCR, and a rendered-PDF OCR test pass.
 
 ## External qualification required
 
@@ -52,10 +57,10 @@ The 1 GiB synthetic workspace qualification passed with integrity `ok`. Real Whi
 
 ## Known functional gaps
 
-- Scanned PDF OCR; images are supported.
-- Salvaging rows from a physically corrupted SQLite file; recovery copies healthy workspaces.
-- Calendar recurrence beyond daily/weekly/biweekly CalDAV rules.
-- Device-qualified mobile recording; responsive layout and file attachment are available.
+- Scanned PDF OCR requires the bundled PDFium runtime to be fetched before development; packaged builds fetch it automatically.
+- Salvage copies readable rows; physically destroyed SQLite payloads cannot be reconstructed.
+- Calendar recurrence outside the supported daily/weekly/biweekly/monthly + interval/end-date model is imported as a one-off event; full RRULE exception/`EXDATE` support is not claimed.
+- Device-qualified mobile recording is not documented as complete until `docs/verification/CAPTURE-MATRIX.md` is filled in.
 
 ## Data safety
 
